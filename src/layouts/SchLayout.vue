@@ -10,7 +10,7 @@
             PRO
           </q-item-label>
           <q-img
-            src="/src/assets/bus_logo.png"
+            src="/bus_logo.png"
             alt="NavSmart Logo"
             style=" height: 70%; border-radius: 50%;"
           />

@@ -10,7 +10,7 @@
             PRO
           </q-item-label>
           <q-img
-            src="/src/assets/—Pngtree—doraemon pictures_7031645.png"
+            src="/-Pngtree-doraemon pictures_7031645.png"
             alt="NavSmart Logo"
             style=" height: 70%; border-radius: 50%;"
           />

@@ -12,7 +12,7 @@
                           <!-- Profile Section -->
                           <div class="row items-center no-wrap">
                               <q-avatar size="64px">
-                                  <img src="src/assets/Screenshot 2024-12-08 at 05.52.42.png" alt="Worker Avatar" />
+                                  <img src="Screenshot 2024-12-08 at 05.52.42.png" alt="Worker Avatar" />
                               </q-avatar>
                               <div class="q-ml-md">
                                   <div class="text-weight-bold text-h6">Ginger</div>
