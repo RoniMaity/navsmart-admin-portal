@@ -12,6 +12,7 @@
         />
 
         <q-toolbar-title> NavSmart Admin </q-toolbar-title>
+        <q-btn flat round dense icon="logout" @click="logout" title="Logout" />
       </q-toolbar>
     </q-header>
 
@@ -33,7 +34,12 @@
 
 <script setup>
 import { ref } from "vue";
+import { useRouter } from 'vue-router';
+import { useQuasar } from 'quasar';
 import EssentialLink from "components/EssentialLink.vue";
+
+const router = useRouter();
+const $q = useQuasar();
 
 const linksList = [
   {
@@ -87,5 +93,12 @@ const leftDrawerOpen = ref(false);
 
 function toggleLeftDrawer() {
   leftDrawerOpen.value = !leftDrawerOpen.value;
+}
+
+function logout() {
+  localStorage.removeItem('token');
+  localStorage.removeItem('user');
+  $q.notify({ type: 'positive', message: 'Logged out successfully' });
+  router.push('/login');
 }
 </script>

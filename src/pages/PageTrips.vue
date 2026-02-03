@@ -84,6 +84,14 @@
                 flat
                 @click="viewTripDetails(props.row)"
               ></q-btn>
+              <q-btn
+                icon="delete"
+                color="negative"
+                round
+                flat
+                @click="deleteTrip(props.row)"
+                class="q-ml-sm"
+              ></q-btn>
             </q-td>
           </template>
         </q-table>
@@ -195,7 +203,7 @@
             </div>
 
             <!-- Expected End Time -->
-            <div class="col-12">
+            <div class="col-12" v-if="isEdit">
               <q-input
                 v-model="selectedTrip.expected_end_time"
                 type="datetime-local"
@@ -207,7 +215,7 @@
             </div>
 
             <!-- Actual Start Time -->
-            <div class="col-12">
+            <div class="col-12" v-if="isEdit">
               <q-input
                 v-model="selectedTrip.actual_start_time"
                 type="datetime-local"
@@ -219,7 +227,7 @@
             </div>
 
             <!-- Actual End Time -->
-            <div class="col-12">
+            <div class="col-12" v-if="isEdit">
               <q-input
                 v-model="selectedTrip.actual_end_time"
                 type="datetime-local"
@@ -231,7 +239,7 @@
             </div>
 
             <!-- Last Stop -->
-            <div class="col-12">
+            <div class="col-12" v-if="isEdit">
               <q-input
                 v-model="selectedTrip.last_stop"
                 placeholder="Last Stop"
@@ -243,7 +251,7 @@
             </div>
 
             <!-- Driver Enter Time -->
-            <div class="col-12">
+            <div class="col-12" v-if="isEdit">
               <q-input
                 v-model="selectedTrip.driver_enter_time"
                 type="datetime-local"
@@ -255,7 +263,7 @@
             </div>
 
             <!-- Driver Exit Time -->
-            <div class="col-12">
+            <div class="col-12" v-if="isEdit">
               <q-input
                 v-model="selectedTrip.driver_exit_time"
                 type="datetime-local"
@@ -267,7 +275,7 @@
             </div>
 
             <!-- Conductor Enter Time -->
-            <div class="col-12">
+            <div class="col-12" v-if="isEdit">
               <q-input
                 v-model="selectedTrip.conductor_enter_time"
                 type="datetime-local"
@@ -344,7 +352,7 @@
               {{ selectedTripDetails.conductor.name }}
             </div>
             <div class="q-mb-md">
-              <strong>Route:</strong> {{ selectedTripDetails.route.name }}
+              <strong>Route:</strong> {{ selectedTripDetails.route.route_no }}
             </div>
             <div class="q-mb-md">
               <strong>Schedule ID:</strong>
@@ -388,25 +396,20 @@
             <div class="q-mb-md">
               <strong>Last Stop Location:</strong>
               <div v-if="mapCenter">
-                <GoogleMap
-                  :api-key="GMAP_API_KEY"
-                  :center="mapCenter"
+                <l-map
                   :zoom="12"
+                  :center="mapCenter"
                   style="height: 200px; width: 100%"
-                  mapId="117cde968721239e"
-                  :options="{
-                    mapTypeControl: false,
-                    streetViewControl: false,
-                    disableDefaultUI: true,
-                  }"
+                  :use-global-leaflet="false"
                 >
-                  <AdvancedMarker
-                    :options="{
-                      position: mapCenter,
-                      title: selectedTripDetails.last_stop || 'Last Stop',
-                    }"
-                  />
-                </GoogleMap>
+                  <l-tile-layer
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    layer-type="base"
+                    name="OpenStreetMap"
+                  ></l-tile-layer>
+                  <l-marker :lat-lng="mapCenter">
+                  </l-marker>
+                </l-map>
               </div>
               <div v-else>
                 <q-spinner-dots color="primary" />
@@ -445,15 +448,22 @@
 
 <script setup>
 import { ref, onMounted, computed } from "vue";
-import { supabase } from "src/boot/supabase";
+import axios from 'axios';
 import { useQuasar } from "quasar";
 
-import { GoogleMap, AdvancedMarker } from "vue3-google-map";
+import "leaflet/dist/leaflet.css";
+import { LMap, LTileLayer, LMarker } from "@vue-leaflet/vue-leaflet";
 
 // Add this at the top of your <script setup> section
-const GMAP_API_KEY = import.meta.env.VITE_GMAP_API_KEY; // Ensure your .env has this key
+// const GMAP_API_KEY = import.meta.env.VITE_GMAP_API_KEY; // Ensure your .env has this key
 
 const $q = useQuasar();
+
+const API_BASE_URL = import.meta.env.VITE_API_URL;
+
+function getAuthHeader() {
+  return { headers: { 'x-auth-token': localStorage.getItem('token') } };
+}
 
 const trips = ref([]);
 const selectedTrip = ref(null);
@@ -487,7 +497,14 @@ const vehicles = ref([]);
 
 // Options for Selects
 const schedulesOptions = computed(() =>
-  schedules.value.map((s) => ({ label: `ID: ${s.id}`, value: s.id }))
+  schedules.value.map((s) => {
+    const route = routes.value.find((r) => r.id === s.route_id);
+    const routeName = route ? route.route_no : "Unknown Route";
+    return {
+      label: `Route ${routeName} @ ${s.time_start} (Bus: ${s.vehicle_id ? 'Yes' : 'No'})`,
+      value: s.id,
+    };
+  })
 );
 const driversOptions = computed(() =>
   drivers.value.map((d) => ({ label: d.name, value: d.id }))
@@ -496,17 +513,15 @@ const conductorsOptions = computed(() =>
   conductors.value.map((c) => ({ label: c.name, value: c.id }))
 );
 const routesOptions = computed(() =>
-  routes.value.map((r) => ({ label: r.name, value: r.id }))
+  routes.value.map((r) => ({ label: `${r.route_no} (${r.origin} - ${r.destination})`, value: r.id }))
 );
 const vehiclesOptions = computed(() =>
   vehicles.value.map((v) => ({ label: v.registration_no, value: v.id }))
 );
 
 // Add a computed property or a reactive reference for mapCenter
-const mapCenter = ref({
-  lat: 28.6139, // Example: New Delhi latitude
-  lng: 77.209, // Example: New Delhi longitude
-});
+const mapCenter = ref([28.6139, 77.209]); // Example: New Delhi [lat, lng]
+
 
 onMounted(() => {
   fetchTrips();
@@ -549,89 +564,49 @@ trip = {
 
 const columns = [
   {
-    name: "schedule_id",
-    label: "Schedule ID",
-    align: "left",
-    field: "schedule_id",
-  },
-  {
-    name: "driver_id",
-    label: "Driver",
-    align: "left",
-    field: "driver_id",
-  },
-  {
-    name: "conductor_id",
-    label: "Conductor",
-    align: "left",
-    field: "conductor_id",
-  },
-  {
     name: "route_id",
     label: "Route",
     align: "left",
-    field: "route_id",
+    field: (row) => row.route ? `${row.route.route_no}` : (row.route_id || 'N/A'),
+    sortable: true
   },
   {
     name: "vehicle_id",
     label: "Vehicle",
     align: "left",
-    field: "vehicle_id",
+    field: (row) => row.vehicle ? row.vehicle.registration_no : (row.vehicle_id || 'N/A'),
+    sortable: true
   },
   {
+    name: "driver_id",
+    label: "Driver",
+    align: "left",
+    field: (row) => row.driver ? row.driver.name : (row.driver_id || 'N/A'),
+    sortable: true
+  },
+  {
+    name: "conductor_id",
+    label: "Conductor",
+    align: "left",
+    field: (row) => row.conductor ? row.conductor.name : (row.conductor_id || 'N/A'),
+    sortable: true
+  },
+
+  {
     name: "expected_start_time",
-    label: "Expected Start Time",
+    label: "Scheduled Time",
     align: "left",
     field: "expected_start_time",
     format: (val) => formatDate(val),
+    sortable: true
   },
   {
-    name: "expected_end_time",
-    label: "Expected End Time",
-    align: "left",
-    field: "expected_end_time",
-    format: (val) => formatDate(val),
-  },
-  {
-    name: "actual_start_time",
-    label: "Actual Start Time",
-    align: "left",
-    field: "actual_start_time",
-    format: (val) => formatTimestamp(val),
-  },
-  {
-    name: "actual_end_time",
-    label: "Actual End Time",
-    align: "left",
-    field: "actual_end_time",
-    format: (val) => formatTimestamp(val),
-  },
-  {
-    name: "last_stop",
-    label: "Last Stop",
-    align: "left",
-    field: "last_stop",
-  },
-  {
-    name: "driver_enter_time",
-    label: "Driver Enter Time",
-    align: "left",
-    field: "driver_enter_time",
-    format: (val) => formatTimestamp(val),
-  },
-  {
-    name: "driver_exit_time",
-    label: "Driver Exit Time",
-    align: "left",
-    field: "driver_exit_time",
-    format: (val) => formatTimestamp(val),
-  },
-  {
-    name: "conductor_enter_time",
-    label: "Conductor Enter Time",
-    align: "left",
-    field: "conductor_enter_time",
-    format: (val) => formatTimestamp(val),
+    name: "status", // Ensure status is shown if available in row
+    label: "Status",
+    align: "center",
+    field: "status",
+    format: (val) => val ? val.replace('_', ' ').toUpperCase() : 'N/A',
+    sortable: true
   },
   {
     name: "actions",
@@ -643,26 +618,8 @@ const columns = [
 
 async function fetchTrips() {
   try {
-    const { data, error } = await supabase
-      .from("trip")
-      .select(
-        `
-        *,
-        driver:driver_id(name),
-        conductor:conductor_id(name),
-        route:route_id(name),
-        vehicle:vehicle_id(registration_no),
-        schedule:schedule_id(id)
-      `
-      )
-      .order("expected_start_time", { ascending: false });
-
-    if (error) {
-      console.error(error);
-      $q.notify({ type: "negative", message: "Failed to fetch trips" });
-    } else {
-      trips.value = data;
-    }
+    const response = await axios.get(`${API_BASE_URL}/trips`, getAuthHeader());
+    trips.value = response.data;
   } catch (error) {
     console.error(error);
     $q.notify({ type: "negative", message: "Failed to fetch trips" });
@@ -671,62 +628,23 @@ async function fetchTrips() {
 
 async function fetchRelatedData() {
   try {
-    // Fetch Schedules
-    const { data: scheduleData, error: scheduleError } = await supabase
-      .from("schedule")
-      .select("*");
-    if (scheduleError) {
-      console.error(scheduleError);
-      $q.notify({ type: "negative", message: "Failed to fetch schedules" });
-    } else {
-      schedules.value = scheduleData;
-    }
+    const [schedulesRes, usersRes, routesRes, vehiclesRes] = await Promise.all([
+      axios.get(`${API_BASE_URL}/schedules`, getAuthHeader()),
+      axios.get(`${API_BASE_URL}/users`, getAuthHeader()),
+      axios.get(`${API_BASE_URL}/routes`, getAuthHeader()),
+      axios.get(`${API_BASE_URL}/vehicles`, getAuthHeader())
+    ]);
 
-    // Fetch Drivers (users with type 'driver')
-    const { data: driverData, error: driverError } = await supabase
-      .from("user")
-      .select("*")
-      .eq("type", "driver");
-    if (driverError) {
-      console.error(driverError);
-      $q.notify({ type: "negative", message: "Failed to fetch drivers" });
-    } else {
-      drivers.value = driverData;
-    }
+    schedules.value = schedulesRes.data;
 
-    // Fetch Conductors (users with type 'conductor')
-    const { data: conductorData, error: conductorError } = await supabase
-      .from("user")
-      .select("*")
-      .eq("type", "conductor");
-    if (conductorError) {
-      console.error(conductorError);
-      $q.notify({ type: "negative", message: "Failed to fetch conductors" });
-    } else {
-      conductors.value = conductorData;
-    }
+    // Filter users by type
+    const allUsers = usersRes.data;
+    drivers.value = allUsers.filter(u => u.type === 'driver');
+    conductors.value = allUsers.filter(u => u.type === 'conductor');
 
-    // Fetch Routes
-    const { data: routeData, error: routeError } = await supabase
-      .from("route")
-      .select("*");
-    if (routeError) {
-      console.error(routeError);
-      $q.notify({ type: "negative", message: "Failed to fetch routes" });
-    } else {
-      routes.value = routeData;
-    }
+    routes.value = routesRes.data;
+    vehicles.value = vehiclesRes.data;
 
-    // Fetch Vehicles
-    const { data: vehicleData, error: vehicleError } = await supabase
-      .from("vehicle")
-      .select("*");
-    if (vehicleError) {
-      console.error(vehicleError);
-      $q.notify({ type: "negative", message: "Failed to fetch vehicles" });
-    } else {
-      vehicles.value = vehicleData;
-    }
   } catch (error) {
     console.error(error);
     $q.notify({ type: "negative", message: "Failed to fetch related data" });
@@ -734,51 +652,27 @@ async function fetchRelatedData() {
 }
 
 async function fetchStats() {
-  try {
-    // Total trips count
-    const { count: totalCount, error: countError } = await supabase
-      .from("trip")
-      .select("id", { count: "exact", head: true });
-    if (!countError && totalCount !== null) {
-      stats.value.totalTrips = totalCount;
-    }
+  // Stats are calculated locally from the trips data or handled by a backend endpoint if available
+  // For now, we can calculate from the already fetched `trips.value` if this is called after fetchTrips,
+  // OR we can make a dedicated stats call. Given the pattern, let's calculate locally from fetched trips to save bandwidth/complexity.
+  // HOWEVER, fetchTrips updates trips.value.
 
-    // Trips today
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
-    const { count: tripsTodayCount, error: tripsTodayError } = await supabase
-      .from("trip")
-      .select("id", { count: "exact", head: true })
-      .gte("expected_start_time", today.toISOString())
-      .lt("expected_start_time", tomorrow.toISOString());
+  if (trips.value.length === 0) return;
 
-    if (!tripsTodayError && tripsTodayCount !== null) {
-      stats.value.tripsToday = tripsTodayCount;
-    }
+  const data = trips.value;
+  stats.value.totalTrips = data.length;
 
-    // Trips in progress (actual_start_time is not null and actual_end_time is null)
-    const { count: inProgressCount, error: inProgressError } = await supabase
-      .from("trip")
-      .select("id", { count: "exact", head: true })
-      .not("actual_start_time", "is", null)
-      .is("actual_end_time", null);
-    if (!inProgressError && inProgressCount !== null) {
-      stats.value.tripsInProgress = inProgressCount;
-    }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
 
-    // Completed trips (actual_end_time is not null)
-    const { count: completedCount, error: completedError } = await supabase
-      .from("trip")
-      .select("id", { count: "exact", head: true })
-      .not("actual_end_time", "is", null);
-    if (!completedError && completedCount !== null) {
-      stats.value.completedTrips = completedCount;
-    }
-  } catch (error) {
-    console.error(error);
-    $q.notify({ type: "negative", message: "Failed to fetch trip stats" });
-  }
+  stats.value.tripsToday = data.filter(t => {
+      const d = new Date(t.expected_start_time);
+      return d >= today && d < tomorrow;
+  }).length;
+
+  stats.value.tripsInProgress = data.filter(t => t.actual_start_time && !t.actual_end_time).length;
+  stats.value.completedTrips = data.filter(t => t.actual_end_time).length;
 }
 
 function addTrip() {
@@ -808,46 +702,34 @@ function editTrip(trip) {
 }
 
 async function saveTrip() {
-  const tripData = { ...selectedTrip.value };
-
-  // Convert empty strings to null for optional datetime fields
-  [
-    "actual_start_time",
-    "actual_end_time",
-    "driver_enter_time",
-    "driver_exit_time",
-    "conductor_enter_time",
-  ].forEach((field) => {
-    if (!tripData[field]) tripData[field] = null;
-  });
+  // Sanitize payload to match database schema
+  const payload = {
+    schedule_id: selectedTrip.value.schedule_id || null,
+    route_id: selectedTrip.value.route_id || null,
+    vehicle_id: selectedTrip.value.vehicle_id || null,
+    driver_id: selectedTrip.value.driver_id || null,
+    conductor_id: selectedTrip.value.conductor_id || null,
+    status: selectedTrip.value.status || 'scheduled',
+    expected_start_time: selectedTrip.value.expected_start_time || null,
+    actual_start_time: selectedTrip.value.actual_start_time || null,
+    actual_end_time: selectedTrip.value.actual_end_time || null,
+    // Add other valid fields if any. Exclude expected_end_time, last_stop, etc.
+  };
 
   try {
     $q.loading.show();
     if (isEdit.value) {
       // Update existing trip
-      const { error } = await supabase
-        .from("trip")
-        .update(tripData)
-        .eq("id", tripData.id);
-      if (error) {
-        console.error(error);
-        $q.notify({ type: "negative", message: "Failed to update trip" });
-      } else {
-        $q.notify({ type: "positive", message: "Trip updated!" });
-        fetchTrips();
-        fetchStats();
-      }
+      await axios.put(`${API_BASE_URL}/trips/${selectedTrip.value.id}`, payload, getAuthHeader());
+      $q.notify({ type: "positive", message: "Trip updated!" });
+      fetchTrips();
+      fetchStats();
     } else {
       // Insert new trip
-      const { error } = await supabase.from("trip").insert(tripData);
-      if (error) {
-        console.error(error);
-        $q.notify({ type: "negative", message: "Failed to create trip" });
-      } else {
-        $q.notify({ type: "positive", message: "Trip created!" });
-        fetchTrips();
-        fetchStats();
-      }
+      await axios.post(`${API_BASE_URL}/trips`, payload, getAuthHeader());
+      $q.notify({ type: "positive", message: "Trip created!" });
+      fetchTrips();
+      fetchStats();
     }
   } catch (error) {
     console.error(error);
@@ -858,7 +740,12 @@ async function saveTrip() {
   }
 }
 
-function deleteTrip() {
+function deleteTrip(trip) {
+  // Handle both direct calls with a trip object and calls from the dialog (where trip might be an event or undefined)
+  const tripToDelete = (trip && trip.id) ? trip : selectedTrip.value;
+
+  if (!tripToDelete) return;
+
   $q.dialog({
     title: "Confirm",
     message: "Are you sure you want to delete this trip?",
@@ -868,17 +755,11 @@ function deleteTrip() {
   }).onOk(async () => {
     try {
       $q.loading.show();
-      const { error } = await supabase
-        .from("trip")
-        .delete()
-        .eq("id", selectedTrip.value.id);
-      if (error) {
-        console.error(error);
-        $q.notify({ type: "negative", message: "Failed to delete trip" });
-      } else {
-        $q.notify({ type: "positive", message: "Trip deleted" });
-        fetchTrips();
-        fetchStats();
+      await axios.delete(`${API_BASE_URL}/trips/${tripToDelete.id}`, getAuthHeader());
+      $q.notify({ type: "positive", message: "Trip deleted" });
+      fetchTrips();
+      fetchStats();
+      if (selectedTrip.value && selectedTrip.value.id === tripToDelete.id) {
         selectedTrip.value = null;
       }
     } catch (error) {
@@ -906,118 +787,24 @@ async function viewTripDetails(trip) {
 async function fetchTripDetails(tripId) {
   try {
     // Fetch trip details with related data
-    const { data, error } = await supabase
-      .from("trip")
-      .select(
-        `
-        *,
-        driver:driver_id(name),
-        conductor:conductor_id(name),
-        route:route_id(name),
-        vehicle:vehicle_id(registration_no),
-        schedule:schedule_id(id)
-      `
-      )
-      .eq("id", tripId)
-      .single();
+    const response = await axios.get(`${API_BASE_URL}/trips/${tripId}`, getAuthHeader());
+    selectedTripDetails.value = response.data;
 
-    if (error) {
-      console.error(error);
-      $q.notify({ type: "negative", message: "Failed to fetch trip details" });
-      return;
-    }
-
-    selectedTripDetails.value = data;
-
-    // Fetch related ticket data for statistics
+    // Fetch related ticket data for statistics (Tickets API fetch skipped for now)
+    /*
     const { data: tickets, error: ticketError } = await supabase
       .from("ticket")
       .select("*")
       .eq("trip_id", tripId);
+    */
+    // Placeholder stats
+    tripStats.value.totalTickets = 0;
+    tripStats.value.totalRevenue = 0;
+    // ...
 
-    if (ticketError) {
-      console.error(ticketError);
-      $q.notify({
-        type: "negative",
-        message: "Failed to fetch tickets for trip",
-      });
-      return;
-    }
-
-    // Compute Total Tickets
-    tripStats.value.totalTickets = tickets.length;
-
-    // Compute Total Revenue (assuming fare is numeric stored as text)
-    const numericFares = tickets
-      .map((t) => parseFloat(t.fare))
-      .filter((f) => !isNaN(f));
-    tripStats.value.totalRevenue = numericFares
-      .reduce((acc, val) => acc + val, 0)
-      .toFixed(2);
-
-    // Compute Unique Customers
-    const uniqueCustSet = new Set(tickets.map((t) => t.costumer_id));
-    tripStats.value.uniqueCustomers = uniqueCustSet.size;
-
-    // Compute Busy Stops (source and destination)
-    const stopCounts = {};
-    tickets.forEach((t) => {
-      if (t.source_stop_id) {
-        stopCounts[t.source_stop_id] = (stopCounts[t.source_stop_id] || 0) + 1;
-      }
-      if (t.destination_stop_id) {
-        stopCounts[t.destination_stop_id] =
-          (stopCounts[t.destination_stop_id] || 0) + 1;
-      }
-    });
-
-    // Fetch stop details
-    const stopIds = Object.keys(stopCounts);
-    const { data: stopsData, error: stopsError } = await supabase
-      .from("stop")
-      .select("stop_id, name")
-      .in("stop_id", stopIds);
-
-    if (stopsError) {
-      console.error(stopsError);
-      $q.notify({
-        type: "negative",
-        message: "Failed to fetch stops for trip",
-      });
-      return;
-    }
-
-    // Map stop_id to name
-    const stopMap = {};
-    stopsData.forEach((stop) => {
-      stopMap[stop.stop_id] = stop.name;
-    });
-
-    // Prepare busy stops list
-    const busyStopsList = Object.entries(stopCounts).map(
-      ([stop_id, count]) => ({
-        stop_id,
-        name: stopMap[stop_id] || "Unknown",
-        ticketCount: count,
-      })
-    );
-
-    // Sort busy stops by ticket count descending
-    busyStopsList.sort((a, b) => b.ticketCount - a.ticketCount);
-
-    // Assign to tripStats
-    tripStats.value.busyStops = busyStopsList.slice(0, 5); // Top 5 busy stops
-
-    // Set mapCenter based on the last_stop's coordinates
-    // Assuming 'last_stop' contains the stop_id
-    if (data.last_stop && stopMap[data.last_stop]) {
-      mapCenter.value = {
-        lat: stopMap[data.last_stop].latitude,
-        lng: stopMap[data.last_stop].longitude,
-      };
-    } else {
-      mapCenter.value = null; // Or set to a default location
-    }
+    tripStats.value.uniqueCustomers = 0;
+    tripStats.value.busyStops = [];
+    mapCenter.value = null;
   } catch (error) {
     console.error(error);
     $q.notify({ type: "negative", message: "Failed to fetch trip details" });

@@ -38,7 +38,7 @@
                 <q-card flat bordered>
                   <q-card-section>
                     <div class="text-subtitle1">Unique drivers</div>
-                    <div class="text-h5">{{ stats.uniquedriver }}</div>
+                    <div class="text-h5">{{ stats.uniqueDrivers }}</div>
                   </q-card-section>
                 </q-card>
               </div>
@@ -64,14 +64,49 @@
       </div>
 
       <!-- Schedules Table -->
+      <!-- Schedules / Trips Table -->
       <div class="col-12">
-        <q-table :rows="schedules" :columns="columns" row-key="id" :rows-per-page-options="[10, 20, 0]">
-          <template #body-cell-actions="props">
-            <q-td :props="props">
-              <q-btn icon="edit" color="primary" round flat @click="editSchedule(props.row)"></q-btn>
-            </q-td>
-          </template>
-        </q-table>
+        <q-card>
+            <q-tabs
+                v-model="tab"
+                dense
+                class="text-grey"
+                active-color="primary"
+                indicator-color="primary"
+                align="justify"
+                narrow-indicator
+            >
+                <q-tab name="upcoming" label="Upcoming Resources (Schedules)" />
+                <q-tab name="ongoing" label="Ongoing Trips" />
+                <q-tab name="history" label="Trip History" />
+            </q-tabs>
+
+            <q-separator />
+
+            <q-tab-panels v-model="tab" animated>
+                <!-- Upcoming: Show defined Definitions (Schedules) or Scheduled Trips -->
+                <q-tab-panel name="upcoming">
+                    <q-table :rows="upcomingSchedules" :columns="columns" row-key="unique_key" :rows-per-page-options="[10, 20, 0]">
+                        <template #body-cell-actions="props">
+                            <q-td :props="props">
+                                <q-btn icon="edit" color="primary" round flat @click="editSchedule(props.row)"></q-btn>
+                                <q-btn icon="delete" color="negative" round flat @click="deleteSchedule(props.row)"></q-btn>
+                            </q-td>
+                        </template>
+                    </q-table>
+                </q-tab-panel>
+
+                <!-- Ongoing: Show Active Trips -->
+                <q-tab-panel name="ongoing">
+                    <q-table :rows="ongoingTrips" :columns="tripColumns" row-key="id" />
+                </q-tab-panel>
+
+                <!-- History: Show Completed Trips -->
+                <q-tab-panel name="history">
+                    <q-table :rows="historyTrips" :columns="tripColumns" row-key="id" />
+                </q-tab-panel>
+            </q-tab-panels>
+        </q-card>
       </div>
     </div>
 
@@ -89,33 +124,83 @@
         <q-card-section>
           <div class="row q-col-gutter-sm">
             <div class="col-12">
-              <q-input v-model="selectedSchedule.vehicle_id" placeholder="Vehicle ID" outlined dense clearable />
+               <div class="text-subtitle2 q-mb-sm">Filter Resources by Area (Optional)</div>
+               <q-select
+                v-model="selectedDepot"
+                :options="availableDepots"
+                label="Select Depot"
+                outlined
+                dense
+                clearable
+                class="q-mb-md"
+              />
+            </div>
+
+            <div class="col-12">
+              <q-select
+                v-model="selectedSchedule.route_id"
+                :options="availableRoutes"
+                label="Select Route"
+                outlined
+                dense
+                emit-value
+                map-options
+                clearable
+                :rules="[val => !!val || 'Route is required']"
+              />
+            </div>
+
+            <div class="col-12">
+              <q-select
+                v-model="selectedSchedule.vehicle_id"
+                :options="availableVehicles"
+                label="Select Vehicle"
+                outlined
+                dense
+                emit-value
+                map-options
+                clearable
+              />
             </div>
             <div class="col-12">
-              <q-input v-model="selectedSchedule.driver_id" placeholder="Driver ID" outlined dense clearable />
+              <q-select
+                v-model="selectedSchedule.driver_id"
+                :options="availableDrivers"
+                label="Select Driver"
+                outlined
+                dense
+                emit-value
+                map-options
+                clearable
+              />
             </div>
             <div class="col-12">
-              <q-input v-model="selectedSchedule.driver_name" placeholder="Driver Name" outlined dense clearable />
-            </div>
-            <div class="col-12">
-              <q-input v-model="selectedSchedule.conductor_id" placeholder="Conductor ID" outlined dense clearable />
-            </div>
-            <div class="col-12">
-              <q-input v-model="selectedSchedule.conductor_name" placeholder="Conductor Name" outlined dense
-                clearable />
+              <q-select
+                v-model="selectedSchedule.conductor_id"
+                :options="availableConductors"
+                label="Select Conductor"
+                outlined
+                dense
+                emit-value
+                map-options
+                clearable
+              />
             </div>
             <div class="col-12">
               <q-input v-model="selectedSchedule.time_start" type="datetime-local" placeholder="Start Time" outlined
                 dense clearable />
             </div>
-            <div class="col-12">
-              <!-- frequency is an interval, user can input as HH:MM:SS -->
-              <q-input v-model="selectedSchedule.frequency" placeholder="Frequency (HH:MM:SS)" outlined dense
-                clearable />
+            <div class="col-6">
+              <q-input v-model.number="selectedSchedule.trip_count" type="number" label="Trip Count (Laps)" outlined dense
+                 :rules="[val => !!val || 'Must be at least 1']" />
+            </div>
+            <div class="col-6">
+              <q-input v-model.number="selectedSchedule.interval_minutes" type="number" label="Gap (Mins)" outlined dense
+                 hint="Rest time between trips" />
             </div>
 
             <div class="col-auto" v-if="isEdit">
-              <q-btn icon="delete" color="negative" round flat @click="deleteSchedule" v-close-popup></q-btn>
+              <q-btn icon="delete" color="negative" round flat @click="deleteSchedule(selectedSchedule)" v-close-popup></q-btn>
             </div>
 
             <div class="col">
@@ -129,128 +214,252 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
-import { supabase } from "src/boot/supabase";
+import { ref, onMounted, computed } from "vue";
+import axios from 'axios';
 import { useQuasar } from "quasar";
 
 const $q = useQuasar();
 
 const schedules = ref([]);
+const trips = ref([]);
+const users = ref([]);
+const vehicles = ref([]);
+const routes = ref([]);
+
 const selectedSchedule = ref(null);
+const selectedDepot = ref(null);
+
 const isEdit = ref(false);
 const showScheduleDialog = ref(false);
+
+const API_BASE_URL = import.meta.env.VITE_API_URL;
+
+function getAuthHeader() {
+  return { headers: { 'x-auth-token': localStorage.getItem('token') } };
+}
 
 const stats = ref({
   totalSchedules: 0,
   uniqueVehicles: 0,
   uniqueDrivers: 0,
   uniqueConductors: 0,
-  earliestStart: "",
+  earliestStart: "N/A",
 });
 
 const columns = [
-  { name: "vehicle_id", label: "Vehicle ID", align: "left", field: row => row.vehicle.registration_no },
-  { name: "driver_id", label: "Driver ID", align: "left", field: "driver_id" },
-  { name: "driver_name", label: "Driver Name", align: "left", field: "driver_name" },
-  { name: "conductor_id", label: "Conductor ID", align: "left", field: "conductor_id" },
-  { name: "conductor_name", label: "Conductor Name", align: "left", field: "conductor_name" },
-  { name: "time_start", label: "Start Time", align: "left", field: "time_start" },
-  { name: "frequency", label: "Frequency", align: "left", field: "frequency" },
-  { name: "created_at", label: "Created At", align: "left", field: "created_at" },
+  { name: "route_name", label: "Route", align: "left", field: row => row.route ? row.route.route_no : (row.route_id || 'N/A') },
+  { name: "time_start", label: "Start Time", align: "left", field: row => new Date(row.time_start).toLocaleString() },
+  { name: "trip_count", label: "Laps", align: "center", field: row => `${row.slot_index || 1}/${row.trip_count || 1}` },
+  { name: "vehicle_id", label: "Vehicle", align: "left", field: row => row.vehicle ? row.vehicle.registration_no : row.vehicle_id },
+  { name: "driver_name", label: "Driver", align: "left", field: row => row.driver ? row.driver.name : row.driver_name },
+  { name: "conductor_name", label: "Conductor", align: "left", field: row => row.conductor ? row.conductor.name : row.conductor_name },
   { name: "actions", label: "Actions", align: "center", field: "actions" },
 ];
 
+async function fetchResources() {
+    try {
+        const [usersRes, vehiclesRes, routesRes, tripsRes] = await Promise.all([
+            axios.get(`${API_BASE_URL}/users`, getAuthHeader()),
+            axios.get(`${API_BASE_URL}/vehicles`, getAuthHeader()),
+            axios.get(`${API_BASE_URL}/routes`, getAuthHeader()),
+            axios.get(`${API_BASE_URL}/trips`, getAuthHeader())
+        ]);
+        users.value = usersRes.data;
+        vehicles.value = vehiclesRes.data;
+        routes.value = routesRes.data;
+        trips.value = tripsRes.data;
+    } catch (e) {
+        console.error("Error fetching resources", e);
+    }
+}
+
+// ... Computed properties ...
+
 onMounted(() => {
   fetchSchedules();
-  fetchStats();
+  fetchResources();
+});
+
+// Compute Busy IDs
+const busyResources = computed(() => {
+    const busyDrivers = new Set();
+    const busyConductors = new Set();
+    const busyVehicles = new Set();
+
+    trips.value.forEach(t => {
+        if (t.status === 'in_progress') {
+            if (t.driver_id) busyDrivers.add(t.driver_id);
+            if (t.conductor_id) busyConductors.add(t.conductor_id);
+            if (t.vehicle_id) busyVehicles.add(t.vehicle_id);
+        }
+    });
+
+    return { drivers: busyDrivers, conductors: busyConductors, vehicles: busyVehicles };
+});
+
+
+// Extract unique depots from resources
+const availableDepots = computed(() => {
+    // ... (unchanged)
+    const depots = new Set();
+    vehicles.value.forEach(v => { if(v.depot) depots.add(v.depot) });
+    users.value.forEach(u => { if(u.depot) depots.add(u.depot) });
+    return Array.from(depots).sort();
+});
+
+// Computed Options for Dropdowns (Updated with Filtering)
+const tab = ref('upcoming');
+
+const upcomingSchedules = computed(() => {
+    // Expand Schedules into Laps (similar to Driver Portal)
+    const expanded = [];
+
+    schedules.value.forEach(s => {
+        const limit = s.trip_count || 1;
+        const interval = s.interval_minutes || 0;
+
+        // Find trips for this schedule to check status/duplicates
+        const relatedTrips = trips.value
+            .filter(t => t.schedule_id === s.id)
+            .sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+
+        for (let i = 0; i < limit; i++) {
+            const baseTime = new Date(s.time_start);
+            const slotTime = new Date(baseTime.getTime() + (i * interval * 60000));
+            const existingTrip = relatedTrips[i];
+
+            // If trip exists and is completed/in_progress, we might show it in other tabs.
+            // But user wants "scheduler see them in the upcoming... duplicate it according to lap count".
+            // Let's show ALL slots here, maybe marking status?
+            // "Upcoming" usually implies "Not Yet Done".
+            // If I show "Completed" ones here, it overlaps with History.
+            // I will exclude 'completed' ones to keep it clean, but show 'scheduled' or 'virtual'.
+
+            if (existingTrip && existingTrip.status === 'completed') continue;
+
+            expanded.push({
+                ...s, // Base props
+                unique_key: `${s.id}_lap_${i}`, // For table key
+                display_trip_id: existingTrip ? existingTrip.display_id : `(Lap ${i+1})`,
+                slot_index: i + 1,
+                time_start: slotTime.toISOString(), // Override time
+                status: existingTrip ? existingTrip.status : 'scheduled' // Virtual status
+            });
+        }
+    });
+
+    return expanded.sort((a,b) => new Date(a.time_start) - new Date(b.time_start));
+});
+
+const tripColumns = [
+  { name: "display_id", label: "Trip ID", align: "left", field: "display_id" },
+  { name: "route_id", label: "Route", align: "left", field: row => {
+      // enriching manually if needed, or rely on backend enrichment
+      const r = routes.value.find(x => x.id === row.route_id);
+      return r ? r.name : row.route_id;
+  }},
+  { name: "driver", label: "Driver", align: "left", field: row => row.driver ? row.driver.name : row.driver_id },
+  { name: "vehicle", label: "Vehicle", align: "left", field: row => row.vehicle ? row.vehicle.registration_no : row.vehicle_id },
+  { name: "status", label: "Status", align: "center", field: "status" },
+  { name: "expected_start_time", label: "Scheduled", align: "left", field: row => row.expected_start_time ? new Date(row.expected_start_time).toLocaleString() : '-' },
+  { name: "start_time", label: "Actual Start", align: "left", field: row => row.actual_start_time ? new Date(row.actual_start_time).toLocaleString() : '-' },
+];
+
+const ongoingTrips = computed(() => {
+    return trips.value.filter(t => t.status === 'in_progress');
+});
+
+const historyTrips = computed(() => {
+    return trips.value.filter(t => t.status === 'completed');
+});
+
+const availableVehicles = computed(() => {
+    return vehicles.value
+        .filter(v => v.status === 'active')
+        .filter(v => !selectedDepot.value || v.depot === selectedDepot.value)
+        .filter(v => !busyResources.value.vehicles.has(v.id)) // Filter if busy
+        .map(v => ({ label: `${v.registration_no} (${v.type}) - ${v.depot || 'No Depot'}`, value: v.id }));
+});
+
+const availableDrivers = computed(() => {
+    return users.value
+        .filter(u => u.type === 'driver')
+        .filter(u => !selectedDepot.value || u.depot === selectedDepot.value)
+        .filter(u => !busyResources.value.drivers.has(u.id)) // Filter if busy
+        .map(u => ({ label: `${u.name} (${u.username}) - ${u.depot || 'No Depot'}`, value: u.id }));
+});
+
+const availableConductors = computed(() => {
+    return users.value
+        .filter(u => u.type === 'conductor')
+        .filter(u => !selectedDepot.value || u.depot === selectedDepot.value)
+        .filter(u => !busyResources.value.conductors.has(u.id)) // Filter if busy
+        .map(u => ({ label: `${u.name} (${u.username}) - ${u.depot || 'No Depot'}`, value: u.id }));
+});
+
+const availableRoutes = computed(() => {
+    return routes.value.map(r => ({ label: `${r.route_no} (${r.origin} - ${r.destination})`, value: r.id }));
 });
 
 async function fetchSchedules() {
   try {
-    const { data, error } = await supabase.from("schedule").select("*, vehicle: vehicle_id(*),driver: driver_name(*),conductor: conductor_name(*)");
-    if (error) {
-      console.error(error);
-      $q.notify({ type: "negative", message: "Failed to fetch schedules" });
-    } else {
-      schedules.value = data;
-    }
+    const response = await axios.get(`${API_BASE_URL}/schedules`, getAuthHeader());
+    schedules.value = response.data;
+    calculateStats(response.data);
   } catch (error) {
     console.error(error);
     $q.notify({ type: "negative", message: "Failed to fetch schedules" });
   }
 }
 
-async function fetchStats() {
-  try {
-    // total schedules
-    const { count: totalCount, error: countError } = await supabase
-      .from("schedule")
-      .select("id", { count: "exact", head: true });
-    if (!countError && totalCount !== null) {
-      stats.value.totalSchedules = totalCount;
+function calculateStats(data) {
+    if (!data || data.length === 0) {
+        stats.value = {
+            totalSchedules: 0,
+            uniqueVehicles: 0,
+            uniqueDrivers: 0,
+            uniqueConductors: 0,
+            earliestStart: "N/A",
+        };
+        return;
     }
 
-    // unique vehicles
-    const { data: vehicleData, error: vehicleError } = await supabase
-      .from("schedule")
-      .select("vehicle_id");
-    if (!vehicleError && vehicleData) {
-      const vehicleSet = new Set(vehicleData.map(r => r.vehicle_id));
-      stats.value.uniqueVehicles = vehicleSet.size;
-    }
-    //unique drivers
-    const { data: driverData, error: driverError } = await supabase
-      .from("schedule")
-      .select("driver_id");
-    if (!driverError && driverData) {
-      const driverSet = new Set(driverData.map(r => r.driver_id));
-      stats.value.uniquedrivers = driverSet.size;
-    }
+    stats.value.totalSchedules = data.length;
 
-    // unique conductors
-    const { data: conductorData, error: conductorError } = await supabase
-      .from("schedule")
-      .select("conductor_id");
-    if (!conductorError && conductorData) {
-      const conductorSet = new Set(conductorData.map(r => r.conductor_id));
-      stats.value.uniqueConductors = conductorSet.size;
-    }
+    const vehicleSet = new Set(data.map(r => r.vehicle_id));
+    stats.value.uniqueVehicles = vehicleSet.size;
 
-    // earliest start
-    const { data: startData, error: startError } = await supabase
-      .from("schedule")
-      .select("time_start")
-      .order("time_start", { ascending: true })
-      .limit(1);
-    if (!startError && startData.length > 0) {
-      const earliest = new Date(startData[0].time_start);
-      stats.value.earliestStart = earliest.toLocaleString();
-    } else {
-      stats.value.earliestStart = "N/A";
-    }
+    const driverSet = new Set(data.map(r => r.driver_id));
+    stats.value.uniqueDrivers = driverSet.size;
 
-  } catch (error) {
-    console.error(error);
-    $q.notify({ type: "negative", message: "Failed to fetch schedule stats" });
-  }
+    const conductorSet = new Set(data.map(r => r.conductor_id));
+    stats.value.uniqueConductors = conductorSet.size;
+
+    // Earliest start
+    const sorted = [...data].sort((a, b) => new Date(a.time_start) - new Date(b.time_start));
+    if (sorted.length > 0 && sorted[0].time_start) {
+        stats.value.earliestStart = new Date(sorted[0].time_start).toLocaleString();
+    }
 }
 
 function addSchedule() {
   selectedSchedule.value = {
-    vehicle_id: "",
-    driver_id: "",
-    driver_name: '',
-    conductor_id: "",
-    conductor_name: '',
+    route_id: null,
+    vehicle_id: null,
+    driver_id: null,
+    conductor_id: null,
     time_start: "",
-    frequency: "",
+    trip_count: 1,
+    interval_minutes: 30,
   };
+  selectedDepot.value = null; // Reset filter
   isEdit.value = false;
   showScheduleDialog.value = true;
 }
 
 function editSchedule(schedule) {
   selectedSchedule.value = { ...schedule };
+  selectedDepot.value = null;
   isEdit.value = true;
   showScheduleDialog.value = true;
 }
@@ -258,32 +467,22 @@ function editSchedule(schedule) {
 async function saveSchedule() {
   const scheduleData = { ...selectedSchedule.value };
 
+  const driver = users.value.find(u => u.id === scheduleData.driver_id);
+  if (driver) scheduleData.driver_name = driver.name;
+
+  const conductor = users.value.find(u => u.id === scheduleData.conductor_id);
+  if (conductor) scheduleData.conductor_name = conductor.name;
+
   try {
     $q.loading.show();
     if (isEdit.value) {
-      const { error } = await supabase
-        .from("schedule")
-        .update(scheduleData)
-        .eq("id", scheduleData.id);
-      if (error) {
-        console.error(error);
-        $q.notify({ type: "negative", message: "Failed to update schedule" });
-      } else {
-        $q.notify({ type: "positive", message: "Schedule updated!" });
-        fetchSchedules();
-        fetchStats();
-      }
+      await axios.put(`${API_BASE_URL}/schedules/${scheduleData.id}`, scheduleData, getAuthHeader());
+      $q.notify({ type: "positive", message: "Schedule updated!" });
     } else {
-      const { error } = await supabase.from("schedule").insert(scheduleData);
-      if (error) {
-        console.error(error);
-        $q.notify({ type: "negative", message: "Failed to create schedule" });
-      } else {
-        $q.notify({ type: "positive", message: "Schedule created!" });
-        fetchSchedules();
-        fetchStats();
-      }
+      await axios.post(`${API_BASE_URL}/schedules`, scheduleData, getAuthHeader());
+      $q.notify({ type: "positive", message: "Schedule created!" });
     }
+    fetchSchedules();
   } catch (error) {
     console.error(error);
     $q.notify({ type: "negative", message: "Error saving schedule" });
@@ -293,7 +492,10 @@ async function saveSchedule() {
   }
 }
 
-function deleteSchedule() {
+function deleteSchedule(schedule = null) {
+  const targetId = schedule ? schedule.id : selectedSchedule.value?.id;
+  if (!targetId) return;
+
   $q.dialog({
     title: "Confirm",
     message: "Are you sure you want to delete this schedule?",
@@ -303,19 +505,11 @@ function deleteSchedule() {
   }).onOk(async () => {
     try {
       $q.loading.show();
-      const { error } = await supabase
-        .from("schedule")
-        .delete()
-        .eq("id", selectedSchedule.value.id);
-
-      if (error) {
-        console.error(error);
-        $q.notify({ type: "negative", message: "Failed to delete schedule" });
-      } else {
-        $q.notify({ type: "positive", message: "Schedule deleted" });
-        fetchSchedules();
-        fetchStats();
-        selectedSchedule.value = null;
+      await axios.delete(`${API_BASE_URL}/schedules/${targetId}`, getAuthHeader());
+      $q.notify({ type: "positive", message: "Schedule deleted" });
+      fetchSchedules();
+      if (selectedSchedule.value && selectedSchedule.value.id === targetId) {
+          selectedSchedule.value = null;
       }
     } catch (error) {
       console.error(error);

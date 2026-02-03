@@ -30,8 +30,15 @@
 
 const routes = [
   {
+    path: "/login",
+    component: () => import("layouts/LoginLayout.vue"),
+    children: [{ path: "", component: () => import("src/pages/AuthPage.vue") }],
+  },
+
+  {
     path: "/Planner",
     component: () => import("src/layouts/PlannerLayout.vue"),
+    meta: { requiresAuth: true },
     children: [
       { path: "", redirect: "/PlannerDashboard" },
       {
@@ -56,6 +63,7 @@ const routes = [
   {
     path: "/schedular",
     component: () => import("src/layouts/SchLayout.vue"),
+    meta: { requiresAuth: true },
     children: [
       {
         path: "",
@@ -80,15 +88,10 @@ const routes = [
     ],
   },
 
-  // {
-  //   path: "/login",
-  //   component: () => import("layouts/LoginLayout.vue"),
-  //   children: [{ path: "", component: () => import("src/pages/AuthPage.vue") }],
-  // },
-
   {
     path: "/",
     component: () => import("layouts/AdminLayout.vue"),
+    meta: { requiresAuth: true },
     children: [
       {
         path: "",
@@ -96,7 +99,7 @@ const routes = [
       },
       {
         path: "dashboard",
-        component: () => import("src/pages/PageDashboardMock.vue"),
+        component: () => import("src/pages/PageDashboard.vue"),
       },
       {
         path: 'users',
@@ -133,8 +136,6 @@ const routes = [
     ],
   },
 
-  // Always leave this as last one,
-  // but you can also remove it
   {
     path: "/:catchAll(.*)*",
     component: () => import("pages/ErrorNotFound.vue"),

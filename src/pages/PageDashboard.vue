@@ -333,6 +333,7 @@ function initializeCharts() {
   });
   chartInstances.value.push(tripsByVehicle);
 
+  /*
   // Tickets by Conductor - Horizontal Bar Chart
   const ticketsByConductorCtx = ticketsByConductorChart.value.getContext('2d');
   const ticketsByConductor = new Chart(ticketsByConductorCtx, {
@@ -344,6 +345,7 @@ function initializeCharts() {
     },
   });
   chartInstances.value.push(ticketsByConductor);
+  */
 
   // Schedules Today - Doughnut Chart
   const schedulesTodayCtx = schedulesTodayChart.value.getContext('2d');
@@ -363,6 +365,7 @@ function initializeCharts() {
   });
   chartInstances.value.push(avgTripDuration);
 
+  /*
   // Daily Active Users - Line Chart (Last 7 Days)
   const dailyActiveUsersCtx = dailyActiveUsersChart.value.getContext('2d');
   const dailyActiveUsers = new Chart(dailyActiveUsersCtx, {
@@ -380,6 +383,7 @@ function initializeCharts() {
     options: chartOptions,
   });
   chartInstances.value.push(monthlyActiveUsers);
+  */
 }
 
 // Destroy all chart instances to prevent memory leaks
@@ -462,22 +466,26 @@ async function fetchDataAndPrepareCharts() {
     const routeCountMap = {};
     tripsByRoute.forEach(trip => {
       const rid = trip.route_id;
-      routeCountMap[rid] = (routeCountMap[rid] || 0) + 1;
+      if (rid) routeCountMap[rid] = (routeCountMap[rid] || 0) + 1;
     });
     const sortedRoutes = Object.entries(routeCountMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
     const routeLabels = sortedRoutes.map(entry => entry[0]);
     const routeData = sortedRoutes.map(entry => entry[1]);
 
+
     // Fetch route names
-    const { data: routeNames, error: routeNamesError } = await supabase
-      .from('route')
-      .select('id, name')
-      .in('id', routeLabels);
-    if (routeNamesError) throw routeNamesError;
-    const routeNameMap = {};
-    routeNames.forEach(route => {
-      routeNameMap[route.id] = route.name;
-    });
+    let routeNameMap = {};
+    if (routeLabels.length > 0) {
+      const { data: routeNames, error: routeNamesError } = await supabase
+        .from('route')
+        .select('id, route_no')
+        .in('id', routeLabels);
+      if (routeNamesError) throw routeNamesError;
+      
+      routeNames.forEach(route => {
+        routeNameMap[route.id] = route.route_no;
+      });
+    }
     const routeLabelsNames = routeLabels.map(id => routeNameMap[id] || id);
 
     // Prepare Top Routes Chart Data
@@ -569,22 +577,24 @@ async function fetchDataAndPrepareCharts() {
     const vehicleCountMap = {};
     tripsByVehicle.forEach(trip => {
       const vid = trip.vehicle_id;
-      vehicleCountMap[vid] = (vehicleCountMap[vid] || 0) + 1;
+      if (vid) vehicleCountMap[vid] = (vehicleCountMap[vid] || 0) + 1;
     });
     const sortedVehicles = Object.entries(vehicleCountMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
     const vehicleLabels = sortedVehicles.map(entry => entry[0]);
     const vehicleData = sortedVehicles.map(entry => entry[1]);
 
     // Fetch vehicle registration numbers
-    const { data: vehicleNames, error: vehicleNamesError } = await supabase
-      .from('vehicle')
-      .select('id, registration_no')
-      .in('id', vehicleLabels);
-    if (vehicleNamesError) throw vehicleNamesError;
-    const vehicleNameMap = {};
-    vehicleNames.forEach(vehicle => {
-      vehicleNameMap[vehicle.id] = vehicle.registration_no;
-    });
+    let vehicleNameMap = {};
+    if (vehicleLabels.length > 0) {
+        const { data: vehicleNames, error: vehicleNamesError } = await supabase
+        .from('vehicle')
+        .select('id, registration_no')
+        .in('id', vehicleLabels);
+        if (vehicleNamesError) throw vehicleNamesError;
+        vehicleNames.forEach(vehicle => {
+            vehicleNameMap[vehicle.id] = vehicle.registration_no;
+        });
+    }
     const vehicleLabelsNames = vehicleLabels.map(id => vehicleNameMap[id] || id);
 
     charts.value.vehicleUtilization = {
@@ -617,15 +627,17 @@ async function fetchDataAndPrepareCharts() {
     const stopData = sortedStops.map(entry => entry[1]);
 
     // Fetch stop names
-    const { data: stopNames, error: stopNamesError } = await supabase
-      .from('stop')
-      .select('stop_id, name')
-      .in('stop_id', stopLabels);
-    if (stopNamesError) throw stopNamesError;
-    const stopNameMap = {};
-    stopNames.forEach(stop => {
-      stopNameMap[stop.stop_id] = stop.name;
-    });
+    let stopNameMap = {};
+    if (stopLabels.length > 0) {
+        const { data: stopNames, error: stopNamesError } = await supabase
+        .from('stop')
+        .select('id, name')
+        .in('id', stopLabels);
+        if (stopNamesError) throw stopNamesError;
+        stopNames.forEach(stop => {
+            stopNameMap[stop.id] = stop.name;
+        });
+    }
     const stopLabelsNames = stopLabels.map(id => stopNameMap[id] || id);
 
     charts.value.topStops = {
@@ -665,22 +677,24 @@ async function fetchDataAndPrepareCharts() {
     const tripsVehicleMap = {};
     tripsByVehicleData.forEach(trip => {
       const vid = trip.vehicle_id;
-      tripsVehicleMap[vid] = (tripsVehicleMap[vid] || 0) + 1;
+      if (vid) tripsVehicleMap[vid] = (tripsVehicleMap[vid] || 0) + 1;
     });
     const sortedTripsByVehicle = Object.entries(tripsVehicleMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
     const tripsByVehicleLabels = sortedTripsByVehicle.map(entry => entry[0]);
     const tripsByVehicleCounts = sortedTripsByVehicle.map(entry => entry[1]);
 
     // Fetch vehicle registration numbers
-    const { data: tripsByVehicleNames, error: tripsByVehicleNamesError } = await supabase
-      .from('vehicle')
-      .select('id, registration_no')
-      .in('id', tripsByVehicleLabels);
-    if (tripsByVehicleNamesError) throw tripsByVehicleNamesError;
-    const tripsByVehicleNameMap = {};
-    tripsByVehicleNames.forEach(vehicle => {
-      tripsByVehicleNameMap[vehicle.id] = vehicle.registration_no;
-    });
+    let tripsByVehicleNameMap = {};
+    if (tripsByVehicleLabels.length > 0) {
+        const { data: tripsByVehicleNames, error: tripsByVehicleNamesError } = await supabase
+        .from('vehicle')
+        .select('id, registration_no')
+        .in('id', tripsByVehicleLabels);
+        if (tripsByVehicleNamesError) throw tripsByVehicleNamesError;
+        tripsByVehicleNames.forEach(vehicle => {
+            tripsByVehicleNameMap[vehicle.id] = vehicle.registration_no;
+        });
+    }
     const tripsByVehicleLabelsNames = tripsByVehicleLabels.map(id => tripsByVehicleNameMap[id] || id);
 
     charts.value.tripsByVehicle = {
@@ -692,54 +706,23 @@ async function fetchDataAndPrepareCharts() {
       }]
     };
 
-    // 16. Tickets by Conductor - Horizontal Bar Chart
-    const { data: ticketsByConductor, error: ticketsByConductorError } = await supabase
-      .from('ticket')
-      .select('conductor_id')
-      .not('conductor_id', 'is', null);
-    if (ticketsByConductorError) throw ticketsByConductorError;
-    const conductorTicketsMap = {};
-    ticketsByConductor.forEach(ticket => {
-      const cid = ticket.conductor_id;
-      conductorTicketsMap[cid] = (conductorTicketsMap[cid] || 0) + 1;
-    });
-    const sortedConductorTickets = Object.entries(conductorTicketsMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
-    const conductorLabels = sortedConductorTickets.map(entry => entry[0]);
-    const conductorData = sortedConductorTickets.map(entry => entry[1]);
-
-    // Fetch conductor names
-    const { data: conductorNames, error: conductorNamesError } = await supabase
-      .from('user')
-      .select('id, name')
-      .in('id', conductorLabels);
-    if (conductorNamesError) throw conductorNamesError;
-    const conductorNameMap = {};
-    conductorNames.forEach(user => {
-      conductorNameMap[user.id] = user.name;
-    });
-    const conductorLabelsNames = conductorLabels.map(id => conductorNameMap[id] || id);
-
+    // 16. Tickets by Conductor - Horizontal Bar Chart (Removed due to schema mismatch)
     charts.value.ticketsByConductor = {
-      labels: conductorLabelsNames,
-      datasets: [{
-        label: 'Tickets Sold',
-        data: conductorData,
-        backgroundColor: '#7E57C2',
-      }]
+      labels: [],
+      datasets: []
     };
 
     // 17. Schedules Today - Doughnut Chart
+    // Assuming schedules are daily recurring, so we count all active schedules
     const { data: schedulesToday, error: schedulesTodayError } = await supabase
       .from('schedule')
-      .select('*')
-      .gte('time_start', today.toISOString())
-      .lt('time_start', tomorrow.toISOString());
+      .select('*');
     if (schedulesTodayError) throw schedulesTodayError;
     charts.value.schedulesToday = {
-      labels: ['Schedules Today', 'Other'],
+      labels: ['Total Schedules', 'Other'],
       datasets: [{
         label: 'Schedules',
-        data: [schedulesToday.length, 0], // Assuming 'Other' is zero for simplicity
+        data: [schedulesToday.length, 0], 
         backgroundColor: ['#26C6DA', '#B0BEC5'],
       }]
     };
@@ -774,74 +757,16 @@ async function fetchDataAndPrepareCharts() {
       }]
     };
 
-    // 19. Daily Active Users - Line Chart (Last 7 Days)
-    const { data: dailyActiveUsers, error: dailyActiveUsersError } = await supabase
-      .from('user_activity') // Assuming you have a user_activity table tracking daily logins
-      .select('date, user_id')
-      .gte('date', new Date(new Date().setDate(new Date().getDate() - 6)).toISOString());
-    if (dailyActiveUsersError) throw dailyActiveUsersError;
-    const activeUsersMap = {};
-    dailyActiveUsers.forEach(activity => {
-      const dateStr = new Date(activity.date).toLocaleDateString();
-      if (!activeUsersMap[dateStr]) activeUsersMap[dateStr] = new Set();
-      activeUsersMap[dateStr].add(activity.user_id);
-    });
-    const activeUsersByDay = [];
-    const labelsDaily = [];
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      const dateStr = date.toLocaleDateString();
-      labelsDaily.push(dateStr);
-      activeUsersByDay.push(activeUsersMap[dateStr] ? activeUsersMap[dateStr].size : 0);
-    }
+    // 19. Daily Active Users - Line Chart (Last 7 Days) - REMOVED due to missing table
     charts.value.dailyActiveUsers = {
-      labels: labelsDaily,
-      datasets: [{
-        label: 'Active Users',
-        data: activeUsersByDay,
-        backgroundColor: '#8D6E63',
-        fill: false,
-        borderColor: '#8D6E63',
-        tension: 0.1,
-      }]
+      labels: [],
+      datasets: []
     };
 
-    // 20. Monthly Active Users - Line Chart (Last 6 Months)
-    const sixMonthsAgo = new Date();
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
-    sixMonthsAgo.setDate(1);
-    const { data: monthlyActiveUsers, error: monthlyActiveUsersError } = await supabase
-      .from('user_activity') // Assuming you have a user_activity table tracking monthly logins
-      .select('month, user_id')
-      .gte('month', sixMonthsAgo.toISOString());
-    if (monthlyActiveUsersError) throw monthlyActiveUsersError;
-    const monthlyUsersMap = {};
-    monthlyActiveUsers.forEach(activity => {
-      const monthStr = new Date(activity.month).toLocaleString('default', { month: 'long', year: 'numeric' });
-      if (!monthlyUsersMap[monthStr]) monthlyUsersMap[monthStr] = new Set();
-      monthlyUsersMap[monthStr].add(activity.user_id);
-    });
-    const sortedMonths = [];
-    const activeUsersByMonth = [];
-    for (let i = 5; i >= 0; i--) {
-      const date = new Date();
-      date.setMonth(date.getMonth() - i);
-      date.setDate(1);
-      const monthStr = date.toLocaleString('default', { month: 'long', year: 'numeric' });
-      sortedMonths.push(monthStr);
-      activeUsersByMonth.push(monthlyUsersMap[monthStr] ? monthlyUsersMap[monthStr].size : 0);
-    }
+    // 20. Monthly Active Users - Line Chart (Last 6 Months) - REMOVED due to missing table
     charts.value.monthlyActiveUsers = {
-      labels: sortedMonths,
-      datasets: [{
-        label: 'Active Users',
-        data: activeUsersByMonth,
-        backgroundColor: '#42A5F5',
-        fill: false,
-        borderColor: '#42A5F5',
-        tension: 0.1,
-      }]
+        labels: [],
+        datasets: []
     };
 
     // 21. Average Fare

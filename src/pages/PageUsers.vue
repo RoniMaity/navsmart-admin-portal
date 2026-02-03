@@ -159,7 +159,7 @@
 
 <script setup>
 import { ref, onMounted } from "vue";
-import { supabase } from "src/boot/supabase";
+import axios from 'axios';
 import { useQuasar } from "quasar";
 
 const $q = useQuasar();
@@ -169,79 +169,39 @@ const selectedUser = ref(null);
 const isEdit = ref(false);
 const showUserDialog = ref(false);
 
-// Adjust userTypes as needed if you know the enum values of user_type.
-// Example: user_type might be an enum like: 'admin', 'regular', etc.
+const API_URL = `${import.meta.env.VITE_API_URL}/users`;
 const userTypes = [
   { label: "Admin", value: "admin" },
+  { label: "Driver", value: "driver" },
+  { label: "Conductor", value: "conductor" },
   { label: "Regular", value: "regular" }
 ];
 
 const columns = [
-  {
-    name: "username",
-    label: "Username",
-    align: "left",
-    field: "username",
-  },
-  {
-    name: "name",
-    label: "Name",
-    align: "left",
-    field: "name",
-  },
-  {
-    name: "email",
-    label: "Email",
-    align: "left",
-    field: "email",
-  },
-  {
-    name: "phone",
-    label: "Phone",
-    align: "left",
-    field: "phone",
-  },
-  {
-    name: "type",
-    label: "Type",
-    align: "left",
-    field: "type",
-  },
-  {
-    name: "coins",
-    label: "Coins",
-    align: "left",
-    field: "coins",
-  },
-  {
-    name: "actions",
-    label: "Actions",
-    align: "center",
-    field: "actions",
-  },
+  { name: "username", label: "Username", align: "left", field: "username" },
+  { name: "name", label: "Name", align: "left", field: "name" },
+  { name: "email", label: "Email", align: "left", field: "email" },
+  { name: "phone", label: "Phone", align: "left", field: "phone" },
+  { name: "type", label: "Type", align: "left", field: "type" },
+  { name: "coins", label: "Coins", align: "left", field: "coins" },
+  { name: "actions", label: "Actions", align: "center", field: "actions" },
 ];
 
 onMounted(() => {
   fetchUsers();
 });
 
+function getAuthHeader() {
+  return { headers: { 'x-auth-token': localStorage.getItem('token') } };
+}
+
 async function fetchUsers() {
   try {
-    const { data, error } = await supabase
-      .from("user")
-      .select("*");
-    if (error) {
-      console.error(error);
-      $q.notify({ type: "negative", message: "Failed to fetch users" });
-    } else {
-      users.value = data;
-    }
+    const response = await axios.get(API_URL, getAuthHeader());
+    users.value = response.data;
   } catch (error) {
     console.error(error);
-    $q.notify({
-      type: "negative",
-      message: "Failed to fetch users",
-    });
+    $q.notify({ type: "negative", message: "Failed to fetch users" });
   }
 }
 
@@ -251,9 +211,9 @@ function addUser() {
     password: "",
     name: "",
     phone: "",
-    type: null,
+    type: "regular",
     email: "",
-    coins: "",
+    coins: 0,
   };
   isEdit.value = false;
   showUserDialog.value = true;
@@ -271,42 +231,26 @@ function selectUser(evt, row, idx) {
 
 async function saveUser() {
   const userData = { ...selectedUser.value };
-  // If empty strings for optional fields, you can set them to null if desired:
-  if (!userData.type) userData.type = null;
-  if (!userData.coins) userData.coins = null;
-  if (!userData.email) userData.email = null;
-  if (!userData.phone) userData.phone = null;
+
+  if (userData.type && typeof userData.type === 'object') {
+     userData.type = userData.type.value;
+  }
 
   try {
     $q.loading.show();
     if (isEdit.value) {
       // update existing user
-      const { error } = await supabase
-        .from("user")
-        .update(userData)
-        .eq("id", userData.id);
-
-      if (error) {
-        console.error(error);
-        $q.notify({ type: "negative", message: "Failed to update user" });
-      } else {
-        $q.notify({ type: "positive", message: "User updated!" });
-        fetchUsers();
-      }
+      await axios.put(`${API_URL}/${userData.id}`, userData, getAuthHeader());
+      $q.notify({ type: "positive", message: "User updated!" });
     } else {
       // insert new user
-      const { error } = await supabase.from("user").insert(userData);
-      if (error) {
-        console.error(error);
-        $q.notify({ type: "negative", message: "Failed to create user" });
-      } else {
-        $q.notify({ type: "positive", message: "User created!" });
-        fetchUsers();
-      }
+      await axios.post(API_URL, userData, getAuthHeader());
+      $q.notify({ type: "positive", message: "User created!" });
     }
+    fetchUsers();
   } catch (error) {
     console.error(error);
-    $q.notify({ type: "negative", message: "Error saving user" });
+    $q.notify({ type: "negative", message: error.response?.data?.message || "Error saving user" });
   } finally {
     $q.loading.hide();
     showUserDialog.value = false;
@@ -323,19 +267,10 @@ function deleteUser() {
   }).onOk(async () => {
     try {
       $q.loading.show();
-      const { error } = await supabase
-        .from("user")
-        .delete()
-        .eq("id", selectedUser.value.id);
-
-      if (error) {
-        console.error(error);
-        $q.notify({ type: "negative", message: "Failed to delete user" });
-      } else {
-        $q.notify({ type: "positive", message: "User deleted" });
-        fetchUsers();
-        selectedUser.value = null;
-      }
+      await axios.delete(`${API_URL}/${selectedUser.value.id}`, getAuthHeader());
+      $q.notify({ type: "positive", message: "User deleted" });
+      fetchUsers();
+      selectedUser.value = null;
     } catch (error) {
       console.error(error);
       $q.notify({ type: "negative", message: "Error deleting user" });

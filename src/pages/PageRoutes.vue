@@ -21,8 +21,6 @@
 
       <!-- ROUTE LIST -->
       <div class="col-6">
-        <!-- <pre>{{ fetchedRouteStops }}</pre>
-        <pre>{{ selectedRouteStops }}</pre> -->
         <q-card>
           <q-list>
             <q-item-label header>Routes</q-item-label>
@@ -33,7 +31,12 @@
               :class="{ 'bg-blue-3': selectedRouteId === route.id }"
             >
               <q-item-section @click.stop="selectRoute(route.id)">
-                <q-item-label>{{ route.name }}</q-item-label>
+                <q-item-label>{{ route.route_no }}</q-item-label>
+                <q-item-label caption v-if="route.origin && route.destination">
+                  {{ route.origin }} <q-icon name="arrow_forward" /> {{ route.destination }}
+                </q-item-label>
+
+
               </q-item-section>
               <q-item-section side class="row">
                 <div class="items-center q-gutter-sm">
@@ -67,43 +70,34 @@
         <q-card class="q-mb-md">
           <q-item-label header>Map</q-item-label>
           <q-card-section>
-            <GoogleMap
-              :api-key="GMAP_API_KEY"
-              :center="mapCenter"
+            <l-map
               :zoom="11"
+              :center="mapCenter"
               style="height: 300px"
-              mapId="117cde968721239e"
-              :options="{
-                mapTypeControl: false,
-                streetViewControl: false,
-                disableDefaultUI: true,
-              }"
+              :use-global-leaflet="false"
             >
-              <AdvancedMarker
-                v-for="routeStop in selectedRouteStops"
-                :options="{
-                  position: {
-                    lat: parseFloat(routeStop.stop.latitude),
-                    lng: parseFloat(routeStop.stop.longitude),
-                  },
-                  title: routeStop.stop.name,
-                }"
-                :key="routeStop.id"
-              />
+              <l-tile-layer
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                layer-type="base"
+                name="OpenStreetMap"
+              ></l-tile-layer>
 
-              <Polyline
-                :options="{
-                  path: selectedRouteStops.map((rs) => ({
-                    lat: parseFloat(rs.stop.latitude),
-                    lng: parseFloat(rs.stop.longitude),
-                  })),
-                  geodesic: true,
-                  strokeColor: '#FF0000',
-                  strokeOpacity: 1.0,
-                  strokeWeight: 2,
-                }"
+              <l-marker
+                v-for="routeStop in selectedRouteStops.filter(rs => rs.stop && rs.stop.lat && rs.stop.lng)"
+                :lat-lng="[parseFloat(routeStop.stop.lat), parseFloat(routeStop.stop.lng)]"
+                :key="routeStop.id"
+              >
+              </l-marker>
+
+              <l-polyline
+                :lat-lngs="detailedRoutePath.length > 0 ? detailedRoutePath : selectedRouteStops
+                  .filter(rs => rs.stop && rs.stop.lat && rs.stop.lng)
+                  .map((rs) => [parseFloat(rs.stop.lat), parseFloat(rs.stop.lng)])"
+                :color="'#FF0000'"
+                :weight="4"
+                :opacity="0.8"
               />
-            </GoogleMap>
+            </l-map>
           </q-card-section>
 
           <q-separator></q-separator>
@@ -118,8 +112,8 @@
                   :options="
                     allStops.map((s) => ({
                       label: s.name,
-                      value: s.stop_id,
-                      key: s.stop_id,
+                      value: s.id || s.stop_id,
+                      key: s.id || s.stop_id,
                     }))
                   "
                   emit-value
@@ -165,7 +159,8 @@
                     <q-icon name="drag_indicator" />
                   </q-item-section>
                   <q-item-section>
-                    <q-item-label>{{ element.stop.name }}</q-item-label>
+                    <q-item-label>{{ element.stop?.name || 'Unknown Stop' }}</q-item-label>
+                    <q-item-label caption v-if="!element.stop" class="text-negative">Stop data missing</q-item-label>
                   </q-item-section>
                   <q-item-section side>
                     <!-- Delete Route Stop Button -->
@@ -216,14 +211,37 @@
         <q-card-section>
           <div class="row q-col-gutter-sm">
             <div class="col-12">
+            <div class="col-12">
               <q-input
-                v-model="selectedRoute.name"
-                placeholder="Route Name"
+                v-model="selectedRoute.route_no"
+                placeholder="Route No (e.g. R1)"
                 outlined
                 dense
                 clearable
                 autofocus
+                label="Route Number"
               />
+            </div>
+            <div class="col-12">
+              <q-select
+                v-model="selectedRoute.origin"
+                :options="delhiDepots"
+                label="Start Location (Depot)"
+                outlined
+                dense
+                clearable
+              />
+            </div>
+            <div class="col-12">
+              <q-select
+                v-model="selectedRoute.destination"
+                :options="delhiDepots"
+                label="End Location (Depot)"
+                outlined
+                dense
+                clearable
+              />
+            </div>
             </div>
 
             <div class="col-auto" v-if="isEditRoute">
@@ -254,14 +272,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from "vue";
-import { supabase } from "src/boot/supabase";
+import { ref, onMounted, computed, watch } from "vue";
+import axios from 'axios';
 import Draggable from "vuedraggable";
 import { useQuasar } from "quasar";
-
-import { GoogleMap, AdvancedMarker, Polyline } from "vue3-google-map";
-
-const GMAP_API_KEY = import.meta.env.VITE_GMAP_API_KEY;
+import "leaflet/dist/leaflet.css";
+import { LMap, LTileLayer, LMarker, LPolyline } from "@vue-leaflet/vue-leaflet";
 
 const $q = useQuasar();
 
@@ -270,10 +286,32 @@ const selectedRouteId = ref(null);
 const selectedRouteStops = ref([]);
 const allStops = ref([]);
 const selectedStopToAdd = ref(null);
+const detailedRoutePath = ref([]);
 
 const showRouteDialog = ref(false);
 const selectedRoute = ref(null);
 const isEditRoute = ref(false);
+
+const API_BASE_URL = import.meta.env.VITE_API_URL;
+
+const delhiDepots = [
+  "Kashmere Gate ISBT",
+  "Sarai Kale Khan ISBT",
+  "Anand Vihar ISBT",
+  "Dwarka Sector 21",
+  "Nehru Place Terminal",
+  "Old Delhi Railway Station",
+  "Central Secretariat",
+  "Noida Sector 37",
+  "Gurgaon Bus Stand",
+  "Azadpur Terminal",
+  "Mehrauli Terminal",
+  "Najafgarh Terminal"
+];
+
+function getAuthHeader() {
+  return { headers: { 'x-auth-token': localStorage.getItem('token') } };
+}
 
 onMounted(() => {
   fetchRoutes();
@@ -283,45 +321,48 @@ onMounted(() => {
 const mapCenter = computed(() => {
   if (selectedRouteStops.value.length) {
     // find average lat/lng of all stops
-    const { lat, lng } = selectedRouteStops.value.reduce(
+    // find average lat/lng of all stops
+    const validStops = selectedRouteStops.value.filter(rs => rs.stop && rs.stop.lat && rs.stop.lng);
+
+    if (validStops.length === 0) {
+        return [28.6139, 77.209];
+    }
+
+    const { lat, lng } = validStops.reduce(
       (acc, rs) => {
-        acc.lat += parseFloat(rs.stop.latitude);
-        acc.lng += parseFloat(rs.stop.longitude);
+        acc.lat += parseFloat(rs.stop.lat);
+        acc.lng += parseFloat(rs.stop.lng);
         return acc;
       },
       { lat: 0, lng: 0 }
     );
 
-    console.log("Map center:", lat, lng);
-
-    return {
-      lat: lat / selectedRouteStops.value.length,
-      lng: lng / selectedRouteStops.value.length,
-    };
+    return [
+      lat / validStops.length,
+      lng / validStops.length,
+    ];
   } else {
-    return { lat: 0, lng: 0 };
+    return [28.6139, 77.209];
   }
 });
 
 const fetchRoutes = async () => {
-  const { data, error } = await supabase.from("route").select("*");
-  if (error) {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/routes`, getAuthHeader());
+    routes.value = response.data;
+  } catch (error) {
     console.error(error);
-  } else {
-    routes.value = data;
   }
 };
 
 const fetchAllStops = async () => {
-  const { data, error } = await supabase.from("stop").select("*");
-  if (error) {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/stops`, getAuthHeader());
+    allStops.value = response.data;
+  } catch (error) {
     console.error(error);
-  } else {
-    allStops.value = data;
   }
 };
-
-// const fetchedRouteStops = ref([]);
 
 const selectRoute = async (routeId) => {
   selectedRouteId.value = routeId;
@@ -329,20 +370,47 @@ const selectRoute = async (routeId) => {
 };
 
 const fetchRouteStops = async (routeId) => {
-  const { data, error } = await supabase
-    .from("route_stop")
-    .select("*, stop:stop_id(*)")
-    .eq("route_id", routeId)
-    .order("order", { ascending: true });
-
-  if (error) {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/routes/${routeId}/stops`, getAuthHeader());
+    return response.data || [];
+  } catch (error) {
     console.error(error);
     return [];
-  } else {
-    // fetchedRouteStops.value = data;
-    return data;
   }
 };
+
+const fetchRoutePath = async () => {
+    // Only fetch if we have at least 2 stops
+    const validStops = selectedRouteStops.value.filter(rs => rs.stop && rs.stop.lat && rs.stop.lng);
+    if (validStops.length < 2) {
+        detailedRoutePath.value = [];
+        return;
+    }
+
+    // OSRM expects coordinates in {lon},{lat};{lon},{lat}... format
+    const coordinates = validStops
+        .map(rs => `${parseFloat(rs.stop.lng)},${parseFloat(rs.stop.lat)}`)
+        .join(';');
+
+    try {
+        const url = `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson`;
+        const response = await axios.get(url);
+        
+        if (response.data.routes && response.data.routes.length > 0) {
+            // OSRM returns [lon, lat], Leaflet needs [lat, lon]
+            const geojsonCoords = response.data.routes[0].geometry.coordinates;
+            detailedRoutePath.value = geojsonCoords.map(coord => [coord[1], coord[0]]);
+        }
+    } catch (error) {
+        console.error("OSRM Fetch Error:", error);
+        // Fallback to straight lines
+        detailedRoutePath.value = []; 
+    }
+};
+
+watch(selectedRouteStops, () => {
+    fetchRoutePath();
+}, { deep: true });
 
 const addStopToRoute = async () => {
   if (!selectedStopToAdd.value || !selectedRouteId.value) return;
@@ -353,22 +421,30 @@ const addStopToRoute = async () => {
   );
   const newOrder = maxOrder + 1;
 
-  const { data, error } = await supabase
-    .from("route_stop")
-    .insert({
-      route_id: selectedRouteId.value,
+  const payload = {
       stop_id: selectedStopToAdd.value,
-      order: newOrder,
-    })
-    .select("*, stop:stop_id(*)");
+      order: newOrder
+  };
 
-  if (error) {
-    console.error(error);
-    $q.notify({ type: "negative", message: "Failed to add stop to route" });
-  } else {
-    selectedRouteStops.value.push(...data);
+  try {
+    const response = await axios.post(`${API_BASE_URL}/routes/${selectedRouteId.value}/stops`, payload, getAuthHeader());
+
+    // Backend returns an array from Supabase insert().select()
+    let newRouteStop = Array.isArray(response.data) ? response.data[0] : response.data;
+
+    // Check if backend returned full stop object or just id
+    if (!newRouteStop.stop) {
+        // Find stop in allStops and attach
+        const stopObj = allStops.value.find(s => s.id === selectedStopToAdd.value || s.stop_id === selectedStopToAdd.value);
+        newRouteStop.stop = stopObj;
+    }
+
+    selectedRouteStops.value.push(newRouteStop);
     selectedStopToAdd.value = null;
     $q.notify({ type: "positive", message: "Stop added to route!" });
+  } catch (error) {
+    console.error(error);
+    $q.notify({ type: "negative", message: "Failed to add stop to route" });
   }
 };
 
@@ -382,19 +458,11 @@ const deleteRouteStop = async (routeStopId) => {
   }).onOk(async () => {
     try {
       $q.loading.show();
-      const { error } = await supabase
-        .from("route_stop")
-        .delete()
-        .eq("id", routeStopId);
-      if (error) {
-        console.error(error);
-        $q.notify({ type: "negative", message: "Failed to delete stop" });
-      } else {
-        $q.notify({ type: "positive", message: "Stop deleted" });
-        selectedRouteStops.value = selectedRouteStops.value.filter(
-          (rs) => rs.id !== routeStopId
-        );
-      }
+      await axios.delete(`${API_BASE_URL}/routes/stops/${routeStopId}`, getAuthHeader());
+      $q.notify({ type: "positive", message: "Stop deleted" });
+      selectedRouteStops.value = selectedRouteStops.value.filter(
+        (rs) => rs.id !== routeStopId
+      );
     } catch (error) {
       console.error(error);
       $q.notify({ type: "negative", message: "Error deleting stop" });
@@ -405,27 +473,23 @@ const deleteRouteStop = async (routeStopId) => {
 };
 
 const updateRouteStopOrder = async (evt) => {
+  // Ideally, backend should support batch updates or we call one by one
+  // For simplicity, we loop. Optimisation: Backend endpoint for batch order update.
   for (let i = 0; i < selectedRouteStops.value.length; i++) {
     const rs = selectedRouteStops.value[i];
-    const { error } = await supabase
-      .from("route_stop")
-      .update({ order: i })
-      .eq("id", rs.id)
-      .select("*");
     rs.order = i;
-    if (error) {
-      console.error(error);
-      $q.notify({ type: "negative", message: "Failed to update order" });
+    try {
+        // Assuming PUT /routes/stops/:id
+        await axios.put(`${API_BASE_URL}/routes/stops/${rs.id}`, { order: i }, getAuthHeader());
+    } catch (error) {
+        console.error(error);
+        $q.notify({ type: "negative", message: "Failed to update order" });
     }
   }
 };
 
-const selectStop = (stopId) => {
-  console.log("Selected stop:", stopId);
-};
-
 function addRoute() {
-  selectedRoute.value = { name: "" };
+  selectedRoute.value = { route_no: "", origin: "", destination: "" };
   isEditRoute.value = false;
   showRouteDialog.value = true;
 }
@@ -437,37 +501,22 @@ function editRoute(route) {
 }
 
 async function saveRoute() {
+  const payload = {
+      route_no: selectedRoute.value.route_no,
+      origin: selectedRoute.value.origin,
+      destination: selectedRoute.value.destination
+  };
+
   try {
     $q.loading.show();
     if (isEditRoute.value) {
-      // update existing route
-      const { error } = await supabase
-        .from("route")
-        .update({ name: selectedRoute.value.name })
-        .eq("id", selectedRoute.value.id);
-
-      if (error) {
-        console.error(error);
-        $q.notify({ type: "negative", message: "Failed to update route" });
-      } else {
-        $q.notify({ type: "positive", message: "Route updated!" });
-        fetchRoutes();
-      }
+      await axios.put(`${API_BASE_URL}/routes/${selectedRoute.value.id}`, payload, getAuthHeader());
+      $q.notify({ type: "positive", message: "Route updated!" });
     } else {
-      // insert new route
-      const { data, error } = await supabase
-        .from("route")
-        .insert({ name: selectedRoute.value.name })
-        .select("*");
-
-      if (error) {
-        console.error(error);
-        $q.notify({ type: "negative", message: "Failed to create route" });
-      } else {
-        $q.notify({ type: "positive", message: "Route created!" });
-        fetchRoutes();
-      }
+      await axios.post(`${API_BASE_URL}/routes`, payload, getAuthHeader());
+      $q.notify({ type: "positive", message: "Route created!" });
     }
+    fetchRoutes();
   } catch (error) {
     console.error(error);
     $q.notify({ type: "negative", message: "Error saving route" });
@@ -487,21 +536,12 @@ function deleteRoute(route) {
   }).onOk(async () => {
     try {
       $q.loading.show();
-      const { error } = await supabase
-        .from("route")
-        .delete()
-        .eq("id", route.id);
-      if (error) {
-        console.error(error);
-        $q.notify({ type: "negative", message: "Failed to delete route" });
-      } else {
-        $q.notify({ type: "positive", message: "Route deleted" });
-        fetchRoutes();
-        // If deleted route was selected, clear selection
-        if (selectedRouteId.value === route.id) {
-          selectedRouteId.value = null;
-          selectedRouteStops.value = [];
-        }
+      await axios.delete(`${API_BASE_URL}/routes/${route.id}`, getAuthHeader());
+      $q.notify({ type: "positive", message: "Route deleted" });
+      fetchRoutes();
+      if (selectedRouteId.value === route.id) {
+        selectedRouteId.value = null;
+        selectedRouteStops.value = [];
       }
     } catch (error) {
       console.error(error);

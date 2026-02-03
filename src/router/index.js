@@ -18,11 +18,7 @@ import { init } from "src/boot/supabase";
  */
 
 export default route(async function (/* { store, ssrContext } */) {
-  try {
-    await init();
-  } catch (error) {
-    console.error("Error initializing Supabase", error);
-  }
+
 
   const createHistory = process.env.SERVER
     ? createMemoryHistory
@@ -33,11 +29,26 @@ export default route(async function (/* { store, ssrContext } */) {
   const Router = createRouter({
     scrollBehavior: () => ({ left: 0, top: 0 }),
     routes,
-
-    // Leave this as is and make changes in quasar.conf.js instead!
-    // quasar.conf.js -> build -> vueRouterMode
-    // quasar.conf.js -> build -> publicPath
     history: createHistory(process.env.VUE_ROUTER_BASE),
+  });
+
+  Router.beforeEach((to, from, next) => {
+    const token = localStorage.getItem('token');
+
+    if (to.matched.some(record => record.meta.requiresAuth)) {
+      if (!token) {
+        next('/login');
+      } else {
+        next();
+      }
+    } else {
+      // If going to login page while logged in, redirect to dashboard
+      if (to.path === '/login' && token) {
+        next('/');
+      } else {
+        next();
+      }
+    }
   });
 
   return Router;

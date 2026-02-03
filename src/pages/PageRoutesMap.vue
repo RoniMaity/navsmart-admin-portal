@@ -41,32 +41,29 @@
         <q-card class="q-mb-md">
           <q-item-label header>Map</q-item-label>
           <q-card-section>
-            <GoogleMap
-              :api-key="GMAP_API_KEY"
-              :center="mapCenter"
-              :zoom="11"
-              style="height: 700px"
-              mapId="117cde968721239e"
-              :options="{
-                mapTypeControl: false,
-                streetViewControl: false,
-                disableDefaultUI: true,
-              }"
-            >
-              <template>
-                <Polyline
+            <div style="height: 700px; width: 100%">
+              <l-map
+                ref="map"
+                v-model:zoom="zoom"
+                :center="mapCenter"
+                :use-global-leaflet="false"
+              >
+                <l-tile-layer
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  layer-type="base"
+                  name="OpenStreetMap"
+                ></l-tile-layer>
+
+                <l-polyline
                   v-for="(route, idx) in visibleRoutes"
                   :key="idx"
-                  :options="{
-                    path: route,
-                    geodesic: true,
-                    strokeColor: route[0].color,
-                    strokeOpacity: 1.0,
-                    strokeWeight: 2,
-                  }"
+                  :lat-lngs="route.path"
+                  :color="route.color"
+                  :weight="4"
+                  :opacity="0.8"
                 />
-              </template>
-            </GoogleMap>
+              </l-map>
+            </div>
           </q-card-section>
         </q-card>
       </div>
@@ -75,12 +72,17 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from "vue";
-import { supabase } from "src/boot/supabase";
-import Draggable from "vuedraggable";
-import { GoogleMap, AdvancedMarker, Polyline } from "vue3-google-map";
+import { ref, onMounted } from "vue";
+import axios from 'axios';
+import "leaflet/dist/leaflet.css";
+import { LMap, LTileLayer, LPolyline } from "@vue-leaflet/vue-leaflet";
 
-const GMAP_API_KEY = import.meta.env.VITE_GMAP_API_KEY;
+// const GMAP_API_KEY = import.meta.env.VITE_GMAP_API_KEY; // Not needed
+const API_BASE_URL = import.meta.env.VITE_API_URL;
+
+function getAuthHeader() {
+  return { headers: { 'x-auth-token': localStorage.getItem('token') } };
+}
 
 const COLORS = [
   "red",
@@ -99,15 +101,16 @@ const COLORS = [
   "olive",
   "silver",
   "teal",
+  "#e6194b", "#3cb44b", "#ffe119", "#4363d8", "#f58231", "#911eb4", "#46f0f0", "#f032e6", "#bcf60c", "#fabebe", "#008080", "#e6beff", "#9a6324", "#fffac8", "#800000", "#aaffc3", "#808000", "#ffd8b1", "#000075", "#808080", "#ffffff", "#000000"
 ];
 
 const routes = ref([]);
 
 const fetchRoutes = async () => {
-  const { data, error } = await supabase.from("route").select("*");
-  if (error) {
-    console.error(error);
-  } else {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/routes`, getAuthHeader());
+    const data = response.data;
+
     data.forEach((route, idx) => {
       route.color = COLORS[idx % COLORS.length];
     });
@@ -118,6 +121,8 @@ const fetchRoutes = async () => {
     selectedRoutes.value = data;
 
     fetchStopsForSelectedRoutes();
+  } catch (error) {
+    console.error(error);
   }
 };
 
@@ -131,36 +136,34 @@ const visibleRoutes = ref([]);
 const fetchStopsForSelectedRoutes = async () => {
   const routeStops = await Promise.all(
     selectedRoutes.value.map(async (route) => {
-      const routeStops = await fetchRouteStops(route.id);
-      return routeStops.map((rs) => ({
-        lat: parseFloat(rs.stop.latitude),
-        lng: parseFloat(rs.stop.longitude),
-        color: route.color,
-      }));
+      const stops = await fetchRouteStops(route.id);
+      // Leaflet expects [lat, lng]
+      return stops
+        .filter(rs => rs.stop && rs.stop.latitude && rs.stop.longitude)
+        .map((rs) => [
+          parseFloat(rs.stop.latitude),
+          parseFloat(rs.stop.longitude)
+        ]);
     })
   );
 
-  visibleRoutes.value = routeStops;
+  // We need to pair routes with their stops for rendering
+  visibleRoutes.value = routeStops.map((stops, index) => ({
+      path: stops,
+      color: selectedRoutes.value[index].color
+  }));
 };
 
-const mapCenter = {
-  // delhi
-  lat: 28.6139,
-  lng: 77.209,
-};
+const mapCenter = [28.6139, 77.209]; // Leaflet format [lat, lng]
+const zoom = ref(11);
 
 const fetchRouteStops = async (routeId) => {
-  const { data, error } = await supabase
-    .from("route_stop")
-    .select("*, stop:stop_id(*)")
-    .eq("route_id", routeId)
-    .order("order", { ascending: true });
-
-  if (error) {
-    console.error(error);
-    return [];
-  } else {
-    return data;
+  try {
+      const response = await axios.get(`${API_BASE_URL}/routes/${routeId}/stops`, getAuthHeader());
+      return response.data || [];
+  } catch (error) {
+      console.error(error);
+      return [];
   }
 };
 </script>

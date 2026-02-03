@@ -1,8 +1,8 @@
 {
-  "name": "portalforplanner",
+  "name": "admin-portal",
   "version": "0.0.1",
-  "description": "A Quasar Project",
-  "productName": "Quasar App",
+  "description": "Admin Portal for NavSmart",
+  "productName": "Admin Portal",
   "author": "RoniMaity <maityroni1425@gmail.com>",
   "private": true,
   "scripts": {
@@ -15,13 +15,15 @@
   "dependencies": {
     "@quasar/extras": "^1.16.4",
     "@supabase/supabase-js": "^2.47.3",
+    "@vue-leaflet/vue-leaflet": "^0.10.1",
+    "axios": "^1.13.2",
     "chart.js": "^4.4.7",
+    "leaflet": "^1.9.4",
     "quasar": "^2.17.4",
     "supabase": "^2.0.0",
     "vue": "^3.4.18",
     "vue-router": "^4.0.12",
     "vue3-charts": "^1.1.33",
-    "vue3-google-map": "^0.21.0",
     "vuedraggable": "^4.1.0"
   },
   "devDependencies": {

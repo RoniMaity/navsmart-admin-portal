@@ -1,7 +1,6 @@
 <template>
   <q-page class="q-pa-md">
     <div class="row q-col-gutter-md">
-
       <!-- Stats Section -->
       <div class="col-12">
         <q-card>
@@ -174,7 +173,7 @@
 
 <script setup>
 import { ref, onMounted } from "vue";
-import { supabase } from "src/boot/supabase";
+import axios from 'axios';
 import { useQuasar } from "quasar";
 
 const $q = useQuasar();
@@ -183,6 +182,12 @@ const tickets = ref([]);
 const selectedTicket = ref(null);
 const isEdit = ref(false);
 const showTicketDialog = ref(false);
+
+const API_BASE_URL = import.meta.env.VITE_API_URL;
+
+function getAuthHeader() {
+  return { headers: { 'x-auth-token': localStorage.getItem('token') } };
+}
 
 // Stats object
 const stats = ref({
@@ -233,18 +238,13 @@ const columns = [
 
 onMounted(() => {
   fetchTickets();
-  fetchStats();
 });
 
 async function fetchTickets() {
   try {
-    const { data, error } = await supabase.from("ticket").select("*");
-    if (error) {
-      console.error(error);
-      $q.notify({ type: "negative", message: "Failed to fetch tickets" });
-    } else {
-      tickets.value = data;
-    }
+    const response = await axios.get(`${API_BASE_URL}/tickets`, getAuthHeader());
+    tickets.value = response.data;
+    calculateStats(response.data);
   } catch (error) {
     console.error(error);
     $q.notify({
@@ -254,59 +254,35 @@ async function fetchTickets() {
   }
 }
 
-async function fetchStats() {
-  try {
-    // total tickets count
-    const { count: totalCount, error: countError } = await supabase
-      .from("ticket")
-      .select("id", { count: "exact", head: true });
-    if (!countError && totalCount !== null) {
-      stats.value.totalTickets = totalCount;
+function calculateStats(data) {
+    if (!data || data.length === 0) {
+        stats.value = {
+            totalTickets: 0,
+            uniqueCustomers: 0,
+            uniqueTrips: 0,
+            avgFare: 0,
+        };
+        return;
     }
 
-    // unique customers
-    const { data: uniqueCustData, error: custError } = await supabase
-      .from("ticket")
-      .select("customer_id", { count: "exact" })
-      .neq("customer_id", null);
-    if (!custError && uniqueCustData) {
-      const uniqueCustSet = new Set(uniqueCustData.map(t => t.customer_id));
-      stats.value.uniqueCustomers = uniqueCustSet.size;
-    }
+    stats.value.totalTickets = data.length;
 
-    // unique trips
-    const { data: uniqueTripData, error: tripError } = await supabase
-      .from("ticket")
-      .select("trip_id")
-      .neq("trip_id", null);
-    if (!tripError && uniqueTripData) {
-      const uniqueTripSet = new Set(uniqueTripData.map(t => t.trip_id));
-      stats.value.uniqueTrips = uniqueTripSet.size;
-    }
+    const uniqueCustSet = new Set(data.filter(t => t.customer_id).map(t => t.customer_id));
+    stats.value.uniqueCustomers = uniqueCustSet.size;
 
-    // average fare (assuming fare is numeric stored as text)
-    const { data: fareData, error: fareError } = await supabase
-      .from("ticket")
-      .select("fare");
-    if (!fareError && fareData.length > 0) {
-      const numericFares = fareData
+    const uniqueTripSet = new Set(data.filter(t => t.trip_id).map(t => t.trip_id));
+    stats.value.uniqueTrips = uniqueTripSet.size;
+
+    const numericFares = data
         .map(t => parseFloat(t.fare))
         .filter(f => !isNaN(f));
-      if (numericFares.length > 0) {
+
+    if (numericFares.length > 0) {
         const sum = numericFares.reduce((acc, val) => acc + val, 0);
         stats.value.avgFare = (sum / numericFares.length).toFixed(2);
-      } else {
+    } else {
         stats.value.avgFare = 0;
-      }
     }
-
-  } catch (error) {
-    console.error(error);
-    $q.notify({
-      type: "negative",
-      message: "Failed to fetch ticket stats",
-    });
-  }
 }
 
 function addTicket() {
@@ -333,29 +309,13 @@ async function saveTicket() {
   try {
     $q.loading.show();
     if (isEdit.value) {
-      const { error } = await supabase
-        .from("ticket")
-        .update(ticketData)
-        .eq("id", ticketData.id);
-      if (error) {
-        console.error(error);
-        $q.notify({ type: "negative", message: "Failed to update ticket" });
-      } else {
-        $q.notify({ type: "positive", message: "Ticket updated!" });
-        fetchTickets();
-        fetchStats();
-      }
+      await axios.put(`${API_BASE_URL}/tickets/${ticketData.id}`, ticketData, getAuthHeader());
+      $q.notify({ type: "positive", message: "Ticket updated!" });
     } else {
-      const { error } = await supabase.from("ticket").insert(ticketData);
-      if (error) {
-        console.error(error);
-        $q.notify({ type: "negative", message: "Failed to create ticket" });
-      } else {
-        $q.notify({ type: "positive", message: "Ticket created!" });
-        fetchTickets();
-        fetchStats();
-      }
+      await axios.post(`${API_BASE_URL}/tickets`, ticketData, getAuthHeader());
+      $q.notify({ type: "positive", message: "Ticket created!" });
     }
+    fetchTickets();
   } catch (error) {
     console.error(error);
     $q.notify({ type: "negative", message: "Error saving ticket" });
@@ -375,20 +335,10 @@ function deleteTicket() {
   }).onOk(async () => {
     try {
       $q.loading.show();
-      const { error } = await supabase
-        .from("ticket")
-        .delete()
-        .eq("id", selectedTicket.value.id);
-
-      if (error) {
-        console.error(error);
-        $q.notify({ type: "negative", message: "Failed to delete ticket" });
-      } else {
-        $q.notify({ type: "positive", message: "Ticket deleted" });
-        fetchTickets();
-        fetchStats();
-        selectedTicket.value = null;
-      }
+      await axios.delete(`${API_BASE_URL}/tickets/${selectedTicket.value.id}`, getAuthHeader());
+      $q.notify({ type: "positive", message: "Ticket deleted" });
+      fetchTickets();
+      selectedTicket.value = null;
     } catch (error) {
       console.error(error);
       $q.notify({ type: "negative", message: "Error deleting ticket" });

@@ -24,7 +24,7 @@
         <q-table
           :rows="stops"
           :columns="columns"
-          row-key="stop_id"
+          row-key="id"
           :rows-per-page-options="[10, 20, 0]"
           @row-click="selectStop"
         >
@@ -44,25 +44,21 @@
 
       <div class="col-4">
         <q-card v-if="selectedStop">
-          <GoogleMap
-            :api-key="GMAP_API_KEY"
-            :center="mapCenter"
+          <l-map
+            v-if="selectedStop"
             :zoom="15"
+            :center="mapCenter"
             style="height: 300px"
-            mapId="117cde968721239e"
-            :options="{
-              mapTypeControl: false,
-              streetViewControl: false,
-              disableDefaultUI: true,
-            }"
+            :use-global-leaflet="false"
           >
-            <AdvancedMarker
-              :options="{
-                position: mapCenter,
-                title: selectedStop.name,
-              }"
-            />
-          </GoogleMap>
+            <l-tile-layer
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              layer-type="base"
+              name="OpenStreetMap"
+            ></l-tile-layer>
+            <l-marker :lat-lng="mapCenter">
+            </l-marker>
+          </l-map>
         </q-card>
       </div>
     </div>
@@ -109,7 +105,7 @@
             </div>
             <div class="col-6">
               <q-input
-                v-model="selectedStop.latitude"
+                v-model="selectedStop.lat"
                 placeholder="Latitude"
                 outlined
                 dense
@@ -118,7 +114,7 @@
             </div>
             <div class="col-6">
               <q-input
-                v-model="selectedStop.longitude"
+                v-model="selectedStop.lng"
                 placeholder="Longitude"
                 outlined
                 dense
@@ -157,92 +153,52 @@
 
 <script setup>
 import { ref, onMounted, computed } from "vue";
-import { supabase } from "src/boot/supabase";
+import axios from 'axios';
 import { useQuasar } from "quasar";
 
-import { GoogleMap, AdvancedMarker } from "vue3-google-map";
-
-const GMAP_API_KEY = import.meta.env.VITE_GMAP_API_KEY;
+import "leaflet/dist/leaflet.css";
+import { LMap, LTileLayer, LMarker } from "@vue-leaflet/vue-leaflet";
 
 const $q = useQuasar();
 
 const stops = ref([]);
+const API_URL = import.meta.env.VITE_API_URL + '/stops';
 
 const columns = [
-  {
-    name: "stop_name",
-    label: "Stop Name",
-    align: "left",
-    field: "name",
-  },
-  {
-    name: "plus_code_address",
-    label: "Plus Code Address",
-    align: "left",
-    field: "plus_code_address",
-  },
-  {
-    name: "latitude",
-    label: "Latitude",
-    align: "left",
-    field: "latitude",
-  },
-  {
-    name: "longitude",
-    label: "Longitude",
-    align: "left",
-    field: "longitude",
-  },
+  { name: "stop_name", label: "Stop Name", align: "left", field: "name" },
+  { name: "plus_code_address", label: "Plus Code Address", align: "left", field: "plus_code_address" },
+  { name: "lat", label: "Latitude", align: "left", field: "lat" },
+  { name: "lng", label: "Longitude", align: "left", field: "lng" },
   {
     name: "actions",
     label: "Actions",
     align: "center",
     field: "actions",
-    format: (val, row) => {
-      return [
-        {
-          name: "edit",
-          icon: "eva-edit",
-          color: "primary",
-          size: "md",
-          onClick: () => editStop(row),
-        },
-      ];
-    },
+    format: (val, row) => [
+      {
+        name: "edit",
+        icon: "eva-edit",
+        color: "primary",
+        size: "md",
+        onClick: () => editStop(row),
+      },
+    ],
   },
 ];
 
+function getAuthHeader() {
+  return { headers: { 'x-auth-token': localStorage.getItem('token') } };
+}
+
 const fetchStops = async () => {
   try {
-    const { data, error } = await supabase
-      .from("stop")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.error(error);
-    } else {
-      stops.value = data;
-    }
+    const response = await axios.get(API_URL, getAuthHeader());
+    stops.value = response.data;
   } catch (error) {
     console.error(error);
-    $q.notify({
-      type: "negative",
-      message: "Failed to fetch stops",
-    });
+    $q.notify({ type: "negative", message: "Failed to fetch stops" });
   }
 };
-
-/**
-stops = [{
-    "stop_id": "cc4067e9-c9b0-46c7-9e3a-2af06a313420",
-    "name": "NSIT",
-    "plus_code_address": "J25P+82 New Delhi, Delhi",
-    "created_at": "2024-12-05T20:05:20.36071+00:00",
-    "latitude": "28.64399",
-    "longitude": "77.091"
-  }]
- */
 
 onMounted(() => {
   fetchStops();
@@ -252,16 +208,12 @@ const selectedStop = ref(null);
 
 const mapCenter = computed(() => {
   if (!selectedStop.value) {
-    return {
-      lat: 28.6139,
-      lng: 77.209,
-    };
+    return [28.6139, 77.209];
   }
-
-  return {
-    lat: parseFloat(selectedStop.value.latitude),
-    lng: parseFloat(selectedStop.value.longitude),
-  };
+  return [
+    parseFloat(selectedStop.value.lat || 28.6139),
+    parseFloat(selectedStop.value.lng || 77.209),
+  ];
 });
 
 const selectStop = (evt, row, idx) => {
@@ -275,8 +227,9 @@ function addStop() {
   selectedStop.value = {
     name: "",
     plus_code_address: "",
-    latitude: "",
-    longitude: "",
+    plus_code_address: "",
+    lat: "",
+    lng: "",
   };
   isEdit.value = false;
   showStopDialog.value = true;
@@ -289,62 +242,30 @@ function editStop(stop) {
 }
 
 async function saveStop() {
-  if (isEdit.value) {
-    // update
-    try {
-      $q.loading.show();
-      const { data, error } = await supabase
-        .from("stop")
-        .update(selectedStop.value)
-        .eq("stop_id", selectedStop.value.stop_id);
+  try {
+    $q.loading.show();
+    const stopData = { ...selectedStop.value };
 
-      if (error) {
-        console.error(error);
-      } else {
-        fetchStops();
-        $q.notify({
-          type: "positive",
-          message: "Stop updated!",
-        });
-      }
-    } catch (error) {
-      console.error(error);
-    } finally {
-      $q.loading.hide();
-      showStopDialog.value = false;
+    if (isEdit.value) {
+      // update
+      await axios.put(`${API_URL}/${stopData.id}`, stopData, getAuthHeader());
+      $q.notify({ type: "positive", message: "Stop updated!" });
+    } else {
+      // insert
+      await axios.post(API_URL, stopData, getAuthHeader());
+      $q.notify({ type: "positive", message: "Stop created!" });
     }
-  } else {
-    // insert
-    try {
-      $q.loading.show();
-      const { data, error } = await supabase
-        .from("stop")
-        .insert(selectedStop.value);
-
-      if (error) {
-        console.error(error);
-      } else {
-        fetchStops();
-        $q.notify({
-          type: "positive",
-          message: "Stop created!",
-        });
-      }
-    } catch (error) {
-      console.error(error);
-      $q.notify({
-        type: "negative",
-        message: "Failed to save stop",
-      });
-    } finally {
-      $q.loading.hide();
-      showStopDialog.value = false;
-    }
+    fetchStops();
+  } catch (error) {
+    console.error(error);
+    $q.notify({ type: "negative", message: "Failed to save stop" });
+  } finally {
+    $q.loading.hide();
+    showStopDialog.value = false;
   }
 }
 
 async function deleteStop() {
-  // delete
   $q.dialog({
     title: "Confirm",
     message: "Are you sure you want to delete this stop?",
@@ -354,26 +275,13 @@ async function deleteStop() {
   }).onOk(async () => {
     try {
       $q.loading.show();
-      const { data, error } = await supabase
-        .from("stop")
-        .delete()
-        .eq("stop_id", selectedStop.value.stop_id);
-
-      if (error) {
-        console.error(error);
-      } else {
-        fetchStops();
-        $q.notify({
-          type: "positive",
-          message: "Stop deleted",
-        });
-      }
+      await axios.delete(`${API_URL}/${selectedStop.value.id}`, getAuthHeader());
+      $q.notify({ type: "positive", message: "Stop deleted" });
+      fetchStops();
+      selectedStop.value = null;
     } catch (error) {
       console.error(error);
-      $q.notify({
-        type: "negative",
-        message: "Failed to delete stop",
-      });
+      $q.notify({ type: "negative", message: "Failed to delete stop" });
     } finally {
       $q.loading.hide();
     }

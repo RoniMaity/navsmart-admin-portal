@@ -44,11 +44,20 @@
       <div class="col-4">
         <div class="col-4">
           <q-card v-if="selectedVehicle">
-            <q-img
-              src="/images/bus.jpg"
-              style="height: 300px; object-fit: cover"
-              placeholder="path/to/placeholder.jpg"
-            />
+            <l-map
+              v-if="selectedVehicle"
+              :zoom="15"
+              :center="mapCenter"
+              style="height: 300px; width: 100%"
+              :use-global-leaflet="false"
+            >
+              <l-tile-layer
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                layer-type="base"
+                name="OpenStreetMap"
+              ></l-tile-layer>
+              <l-marker :lat-lng="mapCenter"></l-marker>
+            </l-map>
 
             <q-card-section>
               <div class="text-subtitle1">
@@ -171,17 +180,23 @@
 
 <script setup>
 import { ref, onMounted, computed } from "vue";
-import { supabase } from "src/boot/supabase";
+import axios from 'axios';
 import { useQuasar } from "quasar";
-import { GoogleMap, AdvancedMarker } from "vue3-google-map";
+import "leaflet/dist/leaflet.css";
+import { LMap, LTileLayer, LMarker } from "@vue-leaflet/vue-leaflet";
 
-const GMAP_API_KEY = import.meta.env.VITE_GMAP_API_KEY;
 const $q = useQuasar();
 
 const vehicles = ref([]);
 const selectedVehicle = ref(null);
 const isEdit = ref(false);
 const showVehicleDialog = ref(false);
+
+const API_BASE_URL = import.meta.env.VITE_API_URL;
+
+function getAuthHeader() {
+  return { headers: { 'x-auth-token': localStorage.getItem('token') } };
+}
 
 // Columns for the table
 const columns = [
@@ -229,17 +244,8 @@ onMounted(() => {
 
 async function fetchVehicles() {
   try {
-    const { data, error } = await supabase
-      .from("vehicle")
-      .select("*")
-      .order("registration_date", { ascending: false });
-
-    if (error) {
-      console.error(error);
-      $q.notify({ type: "negative", message: "Failed to fetch vehicles" });
-    } else {
-      vehicles.value = data;
-    }
+    const response = await axios.get(`${API_BASE_URL}/vehicles`, getAuthHeader());
+    vehicles.value = response.data;
   } catch (error) {
     console.error(error);
     $q.notify({
@@ -283,29 +289,14 @@ async function saveVehicle() {
     $q.loading.show();
     if (isEdit.value) {
       // Update existing vehicle
-      const { error } = await supabase
-        .from("vehicle")
-        .update(vehicleData)
-        .eq("id", vehicleData.id);
-
-      if (error) {
-        console.error(error);
-        $q.notify({ type: "negative", message: "Failed to update vehicle" });
-      } else {
-        $q.notify({ type: "positive", message: "Vehicle updated!" });
-        fetchVehicles();
-      }
+      await axios.put(`${API_BASE_URL}/vehicles/${vehicleData.id}`, vehicleData, getAuthHeader());
+      $q.notify({ type: "positive", message: "Vehicle updated!" });
     } else {
       // Insert new vehicle
-      const { error } = await supabase.from("vehicle").insert(vehicleData);
-      if (error) {
-        console.error(error);
-        $q.notify({ type: "negative", message: "Failed to create vehicle" });
-      } else {
-        $q.notify({ type: "positive", message: "Vehicle created!" });
-        fetchVehicles();
-      }
+      await axios.post(`${API_BASE_URL}/vehicles`, vehicleData, getAuthHeader());
+      $q.notify({ type: "positive", message: "Vehicle created!" });
     }
+    fetchVehicles();
   } catch (error) {
     console.error(error);
     $q.notify({ type: "negative", message: "Error saving vehicle" });
@@ -325,19 +316,10 @@ function deleteVehicle() {
   }).onOk(async () => {
     try {
       $q.loading.show();
-      const { error } = await supabase
-        .from("vehicle")
-        .delete()
-        .eq("id", selectedVehicle.value.id);
-
-      if (error) {
-        console.error(error);
-        $q.notify({ type: "negative", message: "Failed to delete vehicle" });
-      } else {
-        $q.notify({ type: "positive", message: "Vehicle deleted" });
-        fetchVehicles();
-        selectedVehicle.value = null;
-      }
+      await axios.delete(`${API_BASE_URL}/vehicles/${selectedVehicle.value.id}`, getAuthHeader());
+      $q.notify({ type: "positive", message: "Vehicle deleted" });
+      fetchVehicles();
+      selectedVehicle.value = null;
     } catch (error) {
       console.error(error);
       $q.notify({ type: "negative", message: "Error deleting vehicle" });
@@ -349,23 +331,23 @@ function deleteVehicle() {
 
 const mapCenter = computed(() => {
   if (!selectedVehicle.value) {
-    return { lat: 28.6139, lng: 77.209 }; // Default to New Delhi
+    return [28.6139, 77.209]; // Default to New Delhi
   }
 
   // Parse current_location as "lat,lng"
   const loc = selectedVehicle.value.current_location;
-  if (!loc) return { lat: 28.6139, lng: 77.209 };
+  if (!loc) return [28.6139, 77.209];
 
   const parts = loc.split(",");
   if (parts.length === 2) {
     const lat = parseFloat(parts[0]);
     const lng = parseFloat(parts[1]);
     if (!isNaN(lat) && !isNaN(lng)) {
-      return { lat, lng };
+      return [lat, lng];
     }
   }
 
-  return { lat: 28.6139, lng: 77.209 };
+  return [28.6139, 77.209];
 });
 
 function formatTimestamp(ts) {

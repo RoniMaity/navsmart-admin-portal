@@ -1,6 +1,6 @@
-import { boot } from 'quasar/wrappers';
-import { createClient } from '@supabase/supabase-js';
-import { ref } from 'vue';
+import { boot } from "quasar/wrappers";
+import { createClient } from "@supabase/supabase-js";
+import { ref } from "vue";
 
 // Get Supabase URL and Anon Key from environment variables
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -8,12 +8,12 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 // Reactive session object
 const session = ref(null);
-let setPasswordRequested = false;  // State for password setup
+let setPasswordRequested = false; // State for password setup
 
 // Hack to process the #access_token and #error before vue-router cleans up
-let indexSupabaseHash = window.location.hash.indexOf('#access_token');
+let indexSupabaseHash = window.location.hash.indexOf("#access_token");
 if (indexSupabaseHash < 0) {
-  indexSupabaseHash = window.location.hash.indexOf('#error');
+  indexSupabaseHash = window.location.hash.indexOf("#error");
 }
 const routerHash = window.location.hash.substring(
   0,
@@ -21,19 +21,19 @@ const routerHash = window.location.hash.substring(
 );
 
 // Initialize Supabase client
-const supabase = createClient("https://codnrccajpjpchleelag.supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvZG5yY2NhanBqcGNobGVlbGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzIxODM3MTYsImV4cCI6MjA0Nzc1OTcxNn0.Ymu1E_rzARqGolgHNxWiDmF2lchesA9Prngjk6lya6Y");
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // Listen to authentication state changes
 supabase.auth.onAuthStateChange(async (_event, _session) => {
   session.value = _session;
 
-  if (_event === 'PASSWORD_RECOVERY') {
-    setPasswordRequested = 'reset';
+  if (_event === "PASSWORD_RECOVERY") {
+    setPasswordRequested = "reset";
   }
 
   const userMetaData = session.value?.user.user_metadata;
   if (!userMetaData?.passwordSetup) {
-    setPasswordRequested = 'initial';
+    setPasswordRequested = "initial";
   }
 });
 

@@ -5,79 +5,41 @@
       <q-card class="auth-card">
         <!-- Header Section with Background Color -->
         <q-card-section class="form-header">
-          <div class="header-animation text-h3 text-center">Welcome to NAVSMART</div>
-          <div class="sub-header-animation text-center">Your One Stop for Seamless Travel in Delhi</div>
+          <div class="header-animation text-h3 text-center">NavSmart Admin</div>
+          <div class="sub-header-animation text-center">Seamless Travel Management</div>
         </q-card-section>
 
-        <!-- Email or Phone Toggle Section -->
-        <div class="toggle-btns">
-          <q-btn
-            label="Email Login"
-            color="primary"
-            @click="toggleForm('email')"
-            :class="{'active-toggle': showEmailForm}"
-            class="toggle-btn"
-          />
+        <!-- Informative Message -->
+         <q-card-section>
+            <div class="text-subtitle2 text-center text-grey-7 q-mb-md">
+              Please log in using the credentials provided by your Administrator.
+            </div>
+         </q-card-section>
 
-
-          <q-btn
-            label="Phone Login"
-            color="secondary"
-            @click="toggleForm('phone')"
-            :class="{'active-toggle': showPhoneForm}"
-            class="toggle-btn"
-          />
-        </div>
-
-        <!-- Email Form -->
-        <div v-if="showEmailForm" class="email-form">
+        <!-- Login Form -->
+        <div class="email-form">
           <q-input
             filled
-            label="Enter your Email"
-            v-model="email"
-            type="email"
-            :rules="[val => val && val.length > 0 || 'Please enter a valid email']"
+            label="Username"
+            v-model="username"
+            type="text"
+            :rules="[val => val && val.length > 0 || 'Please enter your username']"
             class="q-mb-md"
           />
-          <q-input 
+          <q-input
             filled
-            label="Enter your password"
-            v-model = "password"
-            type= "password"
-            class = "q-mb-md"
+            label="Password"
+            v-model="password"
+            type="password"
+            @keyup.enter="handleLogin"
+            class="q-mb-md"
           />
           <q-btn
-            label="Sign in with Magic Link"
+            label="Sign In"
             color="primary"
-            @click="sendMagicLink"
+            @click="handleLogin"
             :loading="loading"
             class="full-width q-mb-md"
-          />
-          <q-btn
-            label="Resend Magic Link"
-            color="secondary"
-            @click="resendMagicLink"
-            :loading="loading"
-            class="full-width"
-          />
-        </div>
-
-        <!-- Phone Form -->
-        <div v-if="showPhoneForm" class="phone-form">
-          <q-input
-            filled
-            label="Enter your Phone"
-            v-model="phone"
-            type="tel"
-            :rules="[val => val && val.length === 13 || 'Please enter a valid phone number (with country code)']"
-            class="q-mb-md"
-          />
-          <q-btn
-            label="Send OTP"
-            color="primary"
-            @click="sendOtp"
-            :loading="loading"
-            class="full-width"
           />
         </div>
       </q-card>
@@ -87,62 +49,49 @@
 
 <script setup>
 import { ref } from 'vue';
-import { supabase } from 'boot/supabase';
+import { useRouter } from 'vue-router';
+// import { supabase } from 'boot/supabase'; // Accessing backend directly now
+import axios from 'axios';
+import { useQuasar } from 'quasar';
 
-const email = ref('');
-const phone = ref('');
+const $q = useQuasar();
+const router = useRouter();
+
+const username = ref('');
+const password = ref('');
 const loading = ref(false);
-const showEmailForm = ref(true);  // Default to show email form
-const showPhoneForm = ref(false);
 
-// Toggle between email and phone login forms
-const toggleForm = (type) => {
-  if (type === 'email') {
-    showEmailForm.value = true;
-    showPhoneForm.value = false;
-  } else if (type === 'phone') {
-    showPhoneForm.value = true;
-    showEmailForm.value = false;
+// Backend API URL (Hardcoded for now as per plan, can be moved to .env later if needed for frontend)
+const API_BASE_URL = import.meta.env.VITE_API_URL;
+
+const handleLogin = async () => {
+  if (!username.value || !password.value) {
+    $q.notify({ type: 'warning', message: 'Please enter both username and password' });
+    return;
   }
-};
 
-// Email sign-in with Magic Link
-const sendMagicLink = async () => {
   loading.value = true;
   try {
-    const { error } = await supabase.auth.signInWithOtp({ email: email.value });
-    if (error) throw error;
-    alert('Check your email for the magic link!');
-  } catch (error) {
-    alert(error.message);
-  } finally {
-    loading.value = false;
-  }
-};
+    const response = await axios.post(`${API_BASE_URL}/auth/login`, {
+      username: username.value,
+      password: password.value
+    });
 
-// Resend the magic link if not received
-const resendMagicLink = async () => {
-  loading.value = true;
-  try {
-    const { error } = await supabase.auth.api.resendVerificationEmail(email.value);
-    if (error) throw error;
-    alert('Verification email has been resent!');
-  } catch (error) {
-    alert(error.message);
-  } finally {
-    loading.value = false;
-  }
-};
+    const { token, user } = response.data;
 
-// Phone sign-in with OTP
-const sendOtp = async () => {
-  loading.value = true;
-  try {
-    const { error } = await supabase.auth.signInWithOtp({ phone: phone.value });
-    if (error) throw error;
-    alert('Check your phone for the OTP!');
+    // Store token and user info
+    localStorage.setItem('token', token);
+    localStorage.setItem('user', JSON.stringify(user));
+
+    $q.notify({ type: 'positive', message: `Welcome back, ${user.name}!` });
+
+    // Redirect to dashboard
+    router.push('/dashboard');
+
   } catch (error) {
-    alert(error.message);
+    console.error(error);
+    const msg = error.response?.data?.message || 'Login failed';
+    $q.notify({ type: 'negative', message: msg });
   } finally {
     loading.value = false;
   }
