@@ -41,6 +41,17 @@
             :loading="loading"
             class="full-width q-mb-md"
           />
+          <!-- Demo login divider -->
+          <div class="demo-divider">
+            <span>or</span>
+          </div>
+          <q-btn
+            label="🎓 Demo Login for Judges"
+            class="full-width demo-btn"
+            @click="demoLogin"
+            :loading="loading"
+            unelevated
+          />
         </div>
       </q-card>
     </div>
@@ -60,6 +71,13 @@ const router = useRouter();
 const username = ref('');
 const password = ref('');
 const loading = ref(false);
+
+// Demo login for judges/professors
+const demoLogin = async () => {
+  username.value = 'admin';
+  password.value = 'password123';
+  await handleLogin();
+};
 
 // Backend API URL (Hardcoded for now as per plan, can be moved to .env later if needed for frontend)
 const API_BASE_URL = import.meta.env.VITE_API_URL;
@@ -244,5 +262,39 @@ const handleLogin = async () => {
 
 .q-input {
   border-radius: 10px; /* Rounded corners for input fields */
+}
+
+/* Demo Login Button */
+.demo-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: 8px 0 12px;
+  color: #9e9e9e;
+  font-size: 13px;
+}
+.demo-divider::before,
+.demo-divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid #e0e0e0;
+}
+.demo-divider span {
+  margin: 0 10px;
+}
+.demo-btn {
+  background: linear-gradient(135deg, #ff6f00, #ff8f00) !important;
+  color: #fff !important;
+  font-weight: 700 !important;
+  font-size: 14px !important;
+  letter-spacing: 0.5px;
+  border-radius: 10px !important;
+  box-shadow: 0 4px 15px rgba(255, 111, 0, 0.35) !important;
+  transition: transform 0.15s, box-shadow 0.15s !important;
+}
+.demo-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(255, 111, 0, 0.5) !important;
+  background: linear-gradient(135deg, #ff8f00, #ffa000) !important;
 }
 </style>
